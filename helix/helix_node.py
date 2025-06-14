@@ -6,6 +6,7 @@ import os
 import queue
 import random
 import threading
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, Generator
 
@@ -15,12 +16,14 @@ try:
     from .ledger import load_balances, save_balances
     from .minihelix import mine_seed as find_seed, verify_seed
     from .gossip import GossipNode, LocalGossipNetwork
+    from .config import GENESIS_HASH
 except ImportError:  # pragma: no cover - allow running as a script
     from helix import event_manager
     from helix.signature_utils import verify_signature
     from helix.ledger import load_balances, save_balances
     from helix.minihelix import mine_seed as find_seed, verify_seed
     from helix.gossip import GossipNode, LocalGossipNetwork
+    from helix.config import GENESIS_HASH
 
 GossipMessage = Dict[str, Any]
 
@@ -62,6 +65,8 @@ class HelixNode(GossipNode):
         self.balances = load_balances(self.balances_file)
         self.events: Dict[str, Dict[str, Any]] = {}
         self.known_peers: set[str] = set()
+        self.genesis_event: Dict[str, Any] | None = None
+        self._load_genesis()
         self.load_state()
         self.update_known_peers()
 
@@ -71,6 +76,16 @@ class HelixNode(GossipNode):
             self.save_state()
         except Exception as exc:
             print(f"Failed to update peers: {exc}")
+
+    def _load_genesis(self) -> None:
+        path = Path(__file__).resolve().parent / "genesis.json"
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(f"Missing genesis block: {exc}")
+        if hashlib.sha256(raw).hexdigest() != GENESIS_HASH:
+            raise RuntimeError("Genesis block hash mismatch")
+        self.genesis_event = json.loads(raw.decode("utf-8"))
 
     def load_state(self) -> None:
         if os.path.exists(self.peers_file):
@@ -89,6 +104,11 @@ class HelixNode(GossipNode):
                 path = os.path.join(self.events_dir, fname)
                 try:
                     event = event_manager.load_event(path)
+                    if event.get("header", {}).get("parent_id") != GENESIS_HASH:
+                        self.logger.warning(
+                            "Ignoring event %s with invalid parent", fname
+                        )
+                        continue
                     evt_id = event["header"]["statement_id"]
                     self.events[evt_id] = event
                 except Exception as exc:

@@ -1,0 +1,26 @@
+{
+  "header": {
+    "statement_id": "4e17811011ec217ac84a9e037a82758a7de318342886a88a37ebabf90f52af73",
+    "original_length": 13,
+    "microblock_size": 8,
+    "block_count": 2
+  },
+  "statement": "Genesis block",
+  "microblocks": [
+    "47656e6573697320",
+    "626c6f636b000000"
+  ],
+  "mined_status": [
+    false,
+    false
+  ],
+  "seeds": [
+    null,
+    null
+  ],
+  "is_closed": false,
+  "bets": {
+    "YES": [],
+    "NO": []
+  }
+}
