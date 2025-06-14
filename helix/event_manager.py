@@ -13,6 +13,8 @@ padding bytes can be safely trimmed.
 
 import hashlib
 import math
+import json
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from .signature_utils import load_keys, sign_data
@@ -91,6 +93,7 @@ def create_event(
         "statement": statement,
         "microblocks": microblocks,
         "mined_status": [False] * block_count,
+        "seeds": [None] * block_count,
         "is_closed": False,
         "bets": {"YES": [], "NO": []},
     }
@@ -108,6 +111,30 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 
+def save_event(event: Dict[str, Any], directory: str) -> str:
+    """Persist ``event`` to ``directory`` as JSON and return file path."""
+    path = Path(directory)
+    path.mkdir(parents=True, exist_ok=True)
+    filename = path / f"{event['header']['statement_id']}.json"
+    data = event.copy()
+    data["microblocks"] = [b.hex() for b in event["microblocks"]]
+    if "seeds" in data:
+        data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return str(filename)
+
+
+def load_event(path: str) -> Dict[str, Any]:
+    """Load an event from ``path`` and return the event dict."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
+    if "seeds" in data:
+        data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+    return data
+
+
 __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",
     "FINAL_BLOCK_PADDING_BYTE",
@@ -115,6 +142,8 @@ __all__ = [
     "reassemble_microblocks",
     "create_event",
     "mark_mined",
+    "save_event",
+    "load_event",
 ]
 
 

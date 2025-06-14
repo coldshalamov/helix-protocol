@@ -4,14 +4,19 @@ import logging
 import random
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, Generator
 
 try:
     from . import event_manager
     from .signature_utils import verify_signature
+    from .ledger import load_balances, save_balances
+    from .miner import find_seed
 except ImportError:  # pragma: no cover - allow running as a script
     from helix import event_manager
     from helix.signature_utils import verify_signature
+    from helix.ledger import load_balances, save_balances
+    from helix.miner import find_seed
 
 # ----------------------------------------------------------------------------
 # Signature Verification
@@ -51,12 +56,11 @@ def simulate_mining(block_index: int) -> None:
 
 
 def auto_resolve_bets(event: Dict[str, Any]) -> None:
-    """Simulate the payout step when an event is fully mined."""
+    """Deprecated helper kept for backward compatibility."""
     logging.info(
         "Auto resolving bets for event %s (mocked payout)",
         event["header"]["statement_id"],
     )
-    # Real chain logic would distribute pools and reward the originator here.
 
 # ----------------------------------------------------------------------------
 # Core node logic
@@ -65,9 +69,18 @@ def auto_resolve_bets(event: Dict[str, Any]) -> None:
 class HelixNode:
     """A basic Helix protocol node that mines incoming statements."""
 
-    def __init__(self, microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE) -> None:
+    def __init__(
+        self,
+        microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
+        *,
+        events_dir: str = "events",
+        balances_file: str = "balances.json",
+    ) -> None:
         self.microblock_size = microblock_size
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.events_dir = events_dir
+        self.balances_file = balances_file
+        self.balances = load_balances(self.balances_file)
 
     # ------------------------------------------------------------------
     # Event lifecycle
@@ -78,6 +91,13 @@ class HelixNode:
 
     def create_event(self, statement: str) -> Dict[str, Any]:
         self.logger.info("Creating event for statement: %s", statement)
+        statement_id = event_manager.sha256(statement.encode("utf-8"))
+        path = Path(self.events_dir) / f"{statement_id}.json"
+        if path.exists():
+            evt = event_manager.load_event(path)
+            if evt.get("statement") == statement:
+                self.logger.info("Loaded existing event %s", statement_id)
+                return evt
         return event_manager.create_event(statement, self.microblock_size)
 
     def mine_microblock(self, event: Dict[str, Any], index: int) -> None:
@@ -85,6 +105,10 @@ class HelixNode:
         miner_id = random.randint(1000, 9999)
         self.logger.info("Miner %s started microblock %d", miner_id, index)
         simulate_mining(index)
+        target = event["microblocks"][index]
+        seed = find_seed(target, attempts=10000)  # simplified search
+        if seed is not None:
+            event["seeds"][index] = seed
         event_manager.mark_mined(event, index)
         mined = sum(1 for m in event["mined_status"] if m)
         total = len(event["microblocks"])
@@ -112,11 +136,42 @@ class HelixNode:
             t.join()
 
         if event["is_closed"]:
-            auto_resolve_bets(event)
+            self.resolve_bets(event)
+            path = event_manager.save_event(event, self.events_dir)
+            self.logger.info("Saved event to %s", path)
             statement = event_manager.reassemble_microblocks(event["microblocks"])
             self.logger.info("Event closed. Reassembled statement: %s", statement)
         else:
             self.logger.warning("Event did not close properly")
+
+    # ------------------------------------------------------------------
+    # Bet resolution
+    # ------------------------------------------------------------------
+    def resolve_bets(self, event: Dict[str, Any]) -> None:
+        """Distribute betting pool to winners and originator."""
+        yes_bets = event.get("bets", {}).get("YES", [])
+        no_bets = event.get("bets", {}).get("NO", [])
+        yes_total = sum(b.get("amount", 0) for b in yes_bets)
+        no_total = sum(b.get("amount", 0) for b in no_bets)
+        if yes_total == no_total:
+            winner = "YES"
+        else:
+            winner = "YES" if yes_total > no_total else "NO"
+        event["result"] = winner
+        pot = yes_total + no_total
+        originator = event["header"].get("originator_pub")
+        origin_cut = pot * 0.01 if originator else 0
+        if originator:
+            self.balances[originator] = self.balances.get(originator, 0) + origin_cut
+        winner_pool = pot - origin_cut
+        winners = event["bets"][winner]
+        total_winner = sum(b["amount"] for b in winners) or 1
+        for bet in winners:
+            share = bet["amount"] / total_winner
+            reward = share * winner_pool
+            key = bet["pubkey"]
+            self.balances[key] = self.balances.get(key, 0) + reward
+        save_balances(self.balances, self.balances_file)
 
     def run(self) -> None:
         """Main execution loop for the node."""
