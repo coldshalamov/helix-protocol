@@ -17,19 +17,39 @@ EVENTS_DIR = "data/events"
 
 
 def _mine_microblocks(event: dict) -> None:
-    """Mine all microblocks for ``event`` using flat or nested seeds."""
+    """Mine all microblocks for ``event`` using flat, nested, or brute-force mining."""
+
+    FLAT_ATTEMPTS = 5_000_000
+    NESTED_ATTEMPTS = 5_000_000
+    BRUTE_FORCE_ATTEMPTS = 10_000_000
+
     for idx, block in enumerate(event["microblocks"]):
-        # Try flat mining first
-        seed = miner.find_seed(block)
-        if seed is None or not minihelix.verify_seed(seed, block):
-            result = nested_miner.find_nested_seed(block)
+        print(f"Mining microblock {idx}")
+
+        seed = miner.find_seed(block, attempts=FLAT_ATTEMPTS)
+        if seed is not None and minihelix.verify_seed(seed, block):
+            print(f"  Flat mining success: length {len(seed)}")
+        else:
+            print(f"  Flat mining failed for index {idx}, trying nested...")
+            seed = None
+            result = nested_miner.find_nested_seed(block, attempts=NESTED_ATTEMPTS)
             if result is not None:
-                chain, _ = result
+                chain, depth = result
                 seed = chain[0]
-        if seed is None:
-            seed = mine_seed(block)
-        if seed is None:
+                if minihelix.verify_seed(seed, block):
+                    print(f"  Nested mining success: length {len(seed)} depth {depth}")
+            if seed is None:
+                print(
+                    f"  Nested mining failed for index {idx}, using brute force with {BRUTE_FORCE_ATTEMPTS} attempts..."
+                )
+                seed = mine_seed(block, max_attempts=BRUTE_FORCE_ATTEMPTS)
+                if seed is not None and minihelix.verify_seed(seed, block):
+                    print(f"  Brute-force success: length {len(seed)}")
+
+        if seed is None or not minihelix.verify_seed(seed, block):
+            print(f"Failed to mine microblock {idx}")
             raise RuntimeError(f"Failed to mine microblock {idx}")
+
         event["seeds"][idx] = seed
         mark_mined(event, idx)
 
