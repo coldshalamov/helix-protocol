@@ -10,6 +10,22 @@ from . import betting_interface
 from .ledger import load_balances
 
 
+def cmd_status(args: argparse.Namespace) -> None:
+    """Print summary information about the node state."""
+    events_dir = Path(args.data_dir) / "events"
+    balances_file = Path(args.data_dir) / "balances.json"
+    node = HelixNode(events_dir=str(events_dir), balances_file=str(balances_file))
+    known_peers = len(node.known_peers)
+    total_events = len(node.events)
+    finalized_events = sum(1 for e in node.events.values() if e.get("is_closed"))
+    balances = load_balances(str(balances_file))
+    print(f"Known peers: {known_peers}")
+    print(f"Events loaded: {total_events}")
+    print(f"Events finalized: {finalized_events}")
+    print("Balances:")
+    print(json.dumps(balances, indent=2))
+
+
 def _load_event(path: Path) -> dict:
     return event_manager.load_event(str(path))
 
@@ -81,7 +97,6 @@ def cmd_view_wallet(args: argparse.Namespace) -> None:
 
 def cmd_reassemble(args: argparse.Namespace) -> None:
     """Load an event and print its reconstructed statement."""
-
     events_dir = Path(args.data_dir) / "events"
     if args.path is not None:
         event_path = Path(args.path)
@@ -128,6 +143,9 @@ def main(argv: list[str] | None = None) -> None:
 
     p_wallet = sub.add_parser("view-wallet", help="View wallet balances")
     p_wallet.set_defaults(func=cmd_view_wallet)
+
+    p_status = sub.add_parser("status", help="Show node status")
+    p_status.set_defaults(func=cmd_status)
 
     p_reassemble = sub.add_parser("reassemble", help="Reassemble an event")
     group = p_reassemble.add_mutually_exclusive_group(required=True)
