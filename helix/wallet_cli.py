@@ -5,7 +5,7 @@ from pathlib import Path
 from . import signature_utils
 from . import betting_interface
 from . import event_manager
-from .ledger import load_balances
+from .ledger import load_balances, save_balances
 
 
 def cmd_wallet_create(args: argparse.Namespace) -> None:
@@ -24,6 +24,29 @@ def cmd_wallet_balance(args: argparse.Namespace) -> None:
     balances_file = Path(args.data_dir) / "balances.json"
     balances = load_balances(str(balances_file))
     print(json.dumps(balances, indent=2))
+
+
+def cmd_wallet_bet(args: argparse.Namespace) -> None:
+    events_dir = Path(args.data_dir) / "events"
+    event_path = events_dir / f"{args.event}.json"
+    if not event_path.exists():
+        raise SystemExit("Event not found")
+
+    pub, priv = signature_utils.load_keys(args.keyfile)
+    if args.pubkey != pub:
+        raise SystemExit("Public key does not match keyfile")
+
+    bet = betting_interface.submit_bet(args.event, args.side, args.amount, args.keyfile)
+
+    event = event_manager.load_event(str(event_path))
+    betting_interface.record_bet(event, bet)
+    event_manager.save_event(event, str(events_dir))
+
+    balances_file = Path(args.data_dir) / "balances.json"
+    balances = load_balances(str(balances_file))
+    balances[pub] = balances.get(pub, 0) - args.amount
+    save_balances(balances, str(balances_file))
+    print(f"New balance for {pub}: {balances[pub]}")
 
 
 def cmd_bet(args: argparse.Namespace) -> None:
@@ -61,6 +84,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_balance = wallet_sub.add_parser("balance", help="Show balances")
     p_balance.add_argument("--data-dir", default="data", help="Node data directory")
     p_balance.set_defaults(func=cmd_wallet_balance)
+
+    p_wbet = wallet_sub.add_parser("bet", help="Place a YES/NO bet")
+    p_wbet.add_argument("event", help="Event identifier")
+    p_wbet.add_argument("amount", type=int, help="Bet amount")
+    p_wbet.add_argument("side", choices=["YES", "NO"], help="Bet side")
+    p_wbet.add_argument("pubkey", help="Public key for wallet")
+    p_wbet.add_argument("--keyfile", required=True, help="Keyfile with signing keys")
+    p_wbet.add_argument("--data-dir", default="data", help="Node data directory")
+    p_wbet.set_defaults(func=cmd_wallet_bet)
 
     p_bet = sub.add_parser("bet", help="Submit a bet")
     p_bet.add_argument("--event", required=True, help="Event identifier")

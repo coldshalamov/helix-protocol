@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -45,11 +46,9 @@ class GossipNode:
         self.network = network
         self._queue: queue.Queue[Dict[str, Any]] = queue.Queue()
         self.known_peers: set[str] = set()
-        self._seen: set[str] = set()
+        self._seen: dict[str, float] = {}
+        self._seen_ttl = 300.0  # seconds
         self.network.register(self)
-
-    # ------------------------------------------------------------------
-    # Messaging helpers
 
     def _message_id(self, message: Dict[str, Any]) -> str | None:
         msg_type = message.get("type")
@@ -64,28 +63,38 @@ class GossipNode:
         idx = message.get("index")
         return f"{msg_type}:{event_id}:{idx}" if idx is not None else f"{msg_type}:{event_id}"
 
+    def _purge_seen(self) -> None:
+        if not self._seen:
+            return
+        now = time.monotonic()
+        expired = [m for m, t in self._seen.items() if now - t > self._seen_ttl]
+        for m in expired:
+            self._seen.pop(m, None)
+
     def _mark_seen(self, message: Dict[str, Any]) -> None:
         msg_id = self._message_id(message)
         if msg_id is not None:
-            self._seen.add(msg_id)
+            self._purge_seen()
+            self._seen[msg_id] = time.monotonic()
 
     def _is_new(self, message: Dict[str, Any]) -> bool:
         msg_id = self._message_id(message)
-        return msg_id is None or msg_id not in self._seen
+        if msg_id is None:
+            return True
+        self._purge_seen()
+        return msg_id not in self._seen
 
     def send_message(self, message: Dict[str, Any]) -> None:
-        """Send ``message`` to all peers on the network."""
-        self._mark_seen(message)
-        self.network.send(self.node_id, message)
+        """Send ``message`` to all peers on the network if new."""
+        if self._is_new(message):
+            self._mark_seen(message)
+            self.network.send(self.node_id, message)
 
     def forward_message(self, message: Dict[str, Any]) -> None:
         """Re-broadcast ``message`` if it hasn't been seen before."""
         if self._is_new(message):
             self._mark_seen(message)
             self.network.send(self.node_id, message)
-
-    # ------------------------------------------------------------------
-    # Presence handling
 
     def broadcast_presence(self) -> None:
         """Announce this node to all peers."""
@@ -104,33 +113,36 @@ class GossipNode:
 
     def receive(self, timeout: float | None = None) -> Dict[str, Any]:
         """Return the next message for this node and handle presence messages."""
-        msg = self._queue.get(timeout=timeout)
-        self._handle_presence(msg)
-        return msg
+        end = None if timeout is None else time.monotonic() + timeout
+        while True:
+            remaining = None if end is None else max(0, end - time.monotonic())
+            if end is not None and remaining == 0:
+                raise queue.Empty
+            msg = self._queue.get(timeout=remaining)
+            if self._is_new(msg):
+                self._mark_seen(msg)
+                self._handle_presence(msg)
+                return msg
 
 
 class GossipMessageType:
     """Basic gossip message types used between :class:`HelixNode` peers."""
-
     NEW_STATEMENT = "NEW_STATEMENT"
     FINALIZED = "FINALIZED"
 
 
 def simulate_mining(index: int) -> None:
     """Placeholder hook executed before mining ``index``."""
-
     return None
 
 
 def find_seed(target: bytes, attempts: int = 1_000_000) -> Optional[bytes]:
     """Search for a seed regenerating ``target``."""
-
     return minihelix.mine_seed(target, max_attempts=attempts)
 
 
 def verify_seed(seed: bytes, target: bytes) -> bool:
     """Verify ``seed`` regenerates ``target``."""
-
     return minihelix.verify_seed(seed, target)
 
 
@@ -159,8 +171,6 @@ class HelixNode(GossipNode):
         self.balances: Dict[str, int] = {}
         self.load_state()
 
-    # ------------------------------------------------------------------
-    # Persistence helpers
     def _load_genesis(self, path: str) -> dict:
         data = Path(path).read_bytes()
         digest = hashlib.sha256(data).hexdigest()
@@ -174,9 +184,7 @@ class HelixNode(GossipNode):
             if not fname.endswith(".json"):
                 continue
             try:
-                event = event_manager.load_event(
-                    os.path.join(self.events_dir, fname)
-                )
+                event = event_manager.load_event(os.path.join(self.events_dir, fname))
             except Exception:
                 continue
             if event.get("header", {}).get("parent_id") != GENESIS_HASH:
@@ -189,8 +197,6 @@ class HelixNode(GossipNode):
             event_manager.save_event(event, self.events_dir)
         save_balances(self.balances, self.balances_file)
 
-    # ------------------------------------------------------------------
-    # Event helpers
     def create_event(self, statement: str, *, keyfile: str | None = None) -> dict:
         return event_manager.create_event(
             statement,
@@ -224,8 +230,6 @@ class HelixNode(GossipNode):
         self.save_state()
         self.send_message({"type": GossipMessageType.FINALIZED, "balances": self.balances})
 
-    # ------------------------------------------------------------------
-    # Networking
     def _handle_message(self, message: Dict[str, Any]) -> None:
         msg_type = message.get("type")
         if msg_type == GossipMessageType.NEW_STATEMENT:

@@ -155,6 +155,16 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     return str(filename)
 
 
+def validate_parent(event: Dict[str, Any], *, ancestors: set[str] | None = None) -> None:
+    """Raise ``ValueError`` if ``event`` has an unknown ``parent_id``."""
+
+    if ancestors is None:
+        ancestors = {GENESIS_HASH}
+    parent_id = event.get("header", {}).get("parent_id")
+    if parent_id not in ancestors:
+        raise ValueError("invalid parent_id")
+
+
 def load_event(path: str) -> Dict[str, Any]:
     """Load an event from ``path`` and return the event dict."""
     with open(path, "r", encoding="utf-8") as f:
@@ -162,6 +172,7 @@ def load_event(path: str) -> Dict[str, Any]:
     data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
     if "seeds" in data:
         data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+    validate_parent(data)
     return data
 
 
@@ -175,6 +186,7 @@ __all__ = [
     "mark_mined",
     "save_event",
     "load_event",
+    "validate_parent",
 ]
 
 

@@ -37,3 +37,33 @@ def test_presence_ping_pong():
     pong = node_a.receive(timeout=1)
     assert pong["type"] == GossipNode.PRESENCE_PONG
     assert node_a.known_peers == {"B"}
+
+
+def test_no_duplicate_broadcast():
+    network = LocalGossipNetwork()
+    node_a = GossipNode("A", network)
+    node_b = GossipNode("B", network)
+
+    msg = {"type": "STATEMENT", "event_id": "x", "index": 1}
+    node_a.send_message(msg)
+    node_a.send_message(msg)
+
+    received = node_b.receive(timeout=1)
+    with pytest.raises(queue.Empty):
+        node_b.receive(timeout=0.1)
+    assert received["type"] == "STATEMENT"
+
+
+def test_receive_deduplicates():
+    network = LocalGossipNetwork()
+    node_a = GossipNode("A", network)
+    node_b = GossipNode("B", network)
+
+    msg = {"type": "STATEMENT", "event_id": "y", "index": 2}
+    network.send("A", msg)
+    network.send("A", msg)
+
+    received = node_b.receive(timeout=1)
+    with pytest.raises(queue.Empty):
+        node_b.receive(timeout=0.1)
+    assert received["type"] == "STATEMENT"
