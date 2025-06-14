@@ -18,7 +18,7 @@ try:
     from .ledger import load_balances, save_balances
     from .minihelix import mine_seed as find_seed, verify_seed
     from .gossip import GossipNode, LocalGossipNetwork
-except ImportError:  # pragma: no cover - allow running as a script
+except ImportError:
     from helix import event_manager
     from helix.signature_utils import verify_signature
     from helix.ledger import load_balances, save_balances
@@ -65,7 +65,7 @@ class HelixNode(GossipNode):
         self.genesis_file = genesis_file
         self.balance_lock = threading.Lock()
         self.balances = load_balances(self.balances_file)
-        self.genesis = self._load_genesis()
+        self.genesis_event: Dict[str, Any] = self._load_genesis()
         self.events: Dict[str, Dict[str, Any]] = {}
         self.known_peers: set[str] = set()
         self.load_state()
@@ -82,8 +82,8 @@ class HelixNode(GossipNode):
             raise ValueError("Genesis hash mismatch")
         try:
             return json.loads(data.decode("utf-8"))
-        except Exception:  # pragma: no cover - corrupted file
-            return {}
+        except Exception as exc:
+            raise RuntimeError(f"Error loading genesis JSON: {exc}")
 
     def update_known_peers(self) -> None:
         try:
@@ -111,7 +111,8 @@ class HelixNode(GossipNode):
                     event = event_manager.load_event(path)
                     parent_id = event.get("header", {}).get("parent_id")
                     if parent_id != GENESIS_HASH:
-                        raise ValueError("invalid parent_id")
+                        self.logger.warning("Ignoring event %s with invalid parent", fname)
+                        continue
                     evt_id = event["header"]["statement_id"]
                     self.events[evt_id] = event
                 except Exception as exc:
@@ -122,7 +123,6 @@ class HelixNode(GossipNode):
                 threading.Thread(target=self.mine_event, args=(evt,)).start()
 
     def save_state(self) -> None:
-        """Persist peers, balances and events to disk."""
         with open(self.peers_file, "w", encoding="utf-8") as fh:
             json.dump(sorted(self.known_peers), fh, indent=2)
         save_balances(self.balances, self.balances_file)
@@ -130,13 +130,11 @@ class HelixNode(GossipNode):
             event_manager.save_event(event, self.events_dir)
 
     def create_event(self, statement: str, *, keyfile: str | None = None) -> Dict[str, Any]:
-        """Create a new event referencing the genesis block."""
         event = event_manager.create_event(statement, self.microblock_size, keyfile=keyfile)
         event["header"]["parent_id"] = GENESIS_HASH
         return event
 
     def import_event(self, event: Dict[str, Any]) -> None:
-        """Add ``event`` to the local store after validation."""
         parent = event.get("header", {}).get("parent_id")
         if parent != GENESIS_HASH:
             raise ValueError("invalid parent_id")
