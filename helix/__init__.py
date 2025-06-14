@@ -9,5 +9,6 @@ __all__ = [
     "helix_node",
     "cli",
     "gossip",
+    "peer_discovery",
     "ui",
 ]
