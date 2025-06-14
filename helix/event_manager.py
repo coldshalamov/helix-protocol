@@ -11,6 +11,8 @@ Padding uses a null byte (``0x00``); when reconstructing the statement these
 padding bytes can be safely trimmed.
 """
 
+from __future__ import annotations
+
 import hashlib
 import math
 import json
