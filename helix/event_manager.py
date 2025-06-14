@@ -1,43 +1,71 @@
-"""Helix Statement Encoder and Local Event Manager
-Author: Robin Gattis
-Description: This script allows statement originators to:
- - Encode a statement into microblocks
- - Store metadata in a shared header
- - Track which blocks are mined
- - Auto-close the event when all microblocks are validated
- - Prepare metadata for on-chain submission
+"""Helix Statement Encoder and Local Event Manager.
 
-NOTE: This is originator-side logic only. Reward and validation systems are handled by Helix miners.
+This module implements the client-side utilities for submitting a statement to
+the Helix protocol.  It can encode a raw statement into fixed-length
+microblocks, track their mining status and automatically close the event once
+all blocks have been validated.  Originators are awarded **1% of the final pot**
+when an event closes – this payout is performed by the chain and is outside the
+scope of this module.
+
+Padding uses a null byte (``0x00``); when reconstructing the statement these
+padding bytes can be safely trimmed.
 """
 
 import hashlib
 import math
-from typing import List, Tuple, Dict
+from typing import Any, Dict, List, Tuple
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 
 
 def sha256(data: bytes) -> str:
+    """Return the SHA256 hex digest of ``data``."""
+
     return hashlib.sha256(data).hexdigest()
 
 
 def pad_block(data: bytes, size: int) -> bytes:
+    """Pad ``data`` with null bytes to ``size`` bytes."""
+
     if len(data) < size:
         return data + FINAL_BLOCK_PADDING_BYTE * (size - len(data))
     return data
 
 
-def split_into_microblocks(statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE) -> Tuple[List[bytes], int, int]:
+def split_into_microblocks(
+    statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
+) -> Tuple[List[bytes], int, int]:
+    """Return padded microblocks for ``statement``.
+
+    Returns a tuple of ``(blocks, block_count, total_length)``.
+    """
+
     encoded = statement.encode("utf-8")
     total_len = len(encoded)
     block_count = math.ceil(total_len / microblock_size)
-    blocks = [pad_block(encoded[i : i + microblock_size], microblock_size) for i in range(0, total_len, microblock_size)]
+    blocks = [
+        pad_block(encoded[i : i + microblock_size], microblock_size)
+        for i in range(0, total_len, microblock_size)
+    ]
     return blocks, block_count, total_len
 
 
-def create_event(statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE) -> Dict[str, object]:
-    microblocks, block_count, total_len = split_into_microblocks(statement, microblock_size)
+def reassemble_microblocks(blocks: List[bytes]) -> str:
+    """Reconstruct the original statement from ``blocks``."""
+
+    payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
+    return payload.decode("utf-8")
+
+
+def create_event(
+    statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
+) -> Dict[str, Any]:
+    """Create an event dictionary for ``statement``."""
+
+    microblocks, block_count, total_len = split_into_microblocks(
+        statement, microblock_size
+    )
     statement_id = sha256(statement.encode("utf-8"))
 
     header = {
@@ -58,7 +86,9 @@ def create_event(statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE)
     return event
 
 
-def mark_mined(event: Dict[str, object], index: int) -> None:
+def mark_mined(event: Dict[str, Any], index: int) -> None:
+    """Mark microblock ``index`` as mined and close the event if complete."""
+
     if event["is_closed"]:
         return
     event["mined_status"][index] = True
@@ -71,6 +101,7 @@ __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",
     "FINAL_BLOCK_PADDING_BYTE",
     "split_into_microblocks",
+    "reassemble_microblocks",
     "create_event",
     "mark_mined",
 ]
@@ -88,3 +119,5 @@ if __name__ == "__main__":
 
     print("Final event state:")
     print(event)
+    print("Reassembled statement:")
+    print(reassemble_microblocks(event["microblocks"]))
