@@ -79,6 +79,28 @@ def cmd_view_wallet(args: argparse.Namespace) -> None:
     print(json.dumps(balances, indent=2))
 
 
+def cmd_reassemble(args: argparse.Namespace) -> None:
+    """Load an event and print its reconstructed statement."""
+
+    events_dir = Path(args.data_dir) / "events"
+    if args.path is not None:
+        event_path = Path(args.path)
+    else:
+        event_path = events_dir / f"{args.event_id}.json"
+
+    if not event_path.exists():
+        print("Event not found")
+        return
+
+    event = _load_event(event_path)
+    statement = event_manager.reassemble_microblocks(event["microblocks"])
+
+    if statement != event.get("statement"):
+        raise SystemExit("Padding trim verification failed")
+
+    print(statement)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="helix-cli")
     parser.add_argument("--data-dir", default="data", help="Directory for node data")
@@ -106,6 +128,12 @@ def main(argv: list[str] | None = None) -> None:
 
     p_wallet = sub.add_parser("view-wallet", help="View wallet balances")
     p_wallet.set_defaults(func=cmd_view_wallet)
+
+    p_reassemble = sub.add_parser("reassemble", help="Reassemble an event")
+    group = p_reassemble.add_mutually_exclusive_group(required=True)
+    group.add_argument("--event-id", help="Event identifier")
+    group.add_argument("--path", help="Path to event JSON file")
+    p_reassemble.set_defaults(func=cmd_reassemble)
 
     args = parser.parse_args(argv)
     args.func(args)
