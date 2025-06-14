@@ -61,11 +61,36 @@ Unlike legacy blockchains that mint tokens by wasting computation, Helix mints 1
 
 ## 🛠 Installation
 
-Install Python dependencies with:
+Helix is developed against **Python 3.13**. Earlier Python 3 versions may work, but 3.13 is recommended.
+
+Install the required packages:
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
+
+The only external dependency at the moment is [PyNaCl](https://pypi.org/project/PyNaCl/), which can also be installed directly:
+
+```bash
+pip install pynacl
+```
+
+## ⚙️ Genesis Setup
+
+After installing the dependencies, create the initial keys and genesis event:
+
+```bash
+python setup_genesis.py
+```
+
+This mines the genesis microblocks and writes the results into the `data/` directory.
+
+## ❓ Troubleshooting
+
+- **`ModuleNotFoundError: No module named 'nacl'`**
+  - Ensure dependencies are installed with `pip install -r requirements.txt`.
+- **`RuntimeError: Failed to mine microblock`**
+  - Mining can require many attempts. Verify PyNaCl is installed and rerun `setup_genesis.py` or increase the mining attempt limits.
 
 ## 🚦 Experimental Networking Layer
 
