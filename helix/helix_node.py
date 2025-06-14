@@ -111,12 +111,20 @@ class HelixNode(GossipNode):
         save_balances(self.balances, self.balances_file)
 
     def create_event(self, statement: str, *, private_key: Optional[str] = None) -> dict:
-        return event_manager.create_event(
+        event = event_manager.create_event(
             statement,
             microblock_size=self.microblock_size,
             parent_id=GENESIS_HASH,
             private_key=private_key,
         )
+        gas_fee = event["header"].get("gas_fee", 0)
+        originator = event.get("originator_pub")
+        if originator and gas_fee:
+            balance = self.balances.get(originator, 0)
+            if balance < gas_fee:
+                raise ValueError("insufficient funds")
+            self.balances[originator] = balance - gas_fee
+        return event
 
     def import_event(self, event: dict) -> None:
         if event.get("header", {}).get("parent_id") != GENESIS_HASH:
