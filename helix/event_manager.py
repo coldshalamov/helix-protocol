@@ -25,6 +25,21 @@ def reward_for_depth(depth: int) -> float:
     return BASE_REWARD / depth
 
 
+def calculate_reward(base: float, depth: int) -> float:
+    """Return the reward for ``depth`` using ``base`` tokens.
+
+    Reward scales inversely with the depth of the mined seed.  A depth-1
+    seed receives the full ``base`` amount, depth-2 receives half, and so
+    on.  The result is rounded to four decimal places.
+    """
+
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+
+    reward = base / depth
+    return round(reward, 4)
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -217,6 +232,7 @@ __all__ = [
     "mark_mined",
     "nesting_penalty",
     "reward_for_depth",
+    "calculate_reward",
     "accept_mined_seed",
     "save_event",
     "verify_originator_signature",
