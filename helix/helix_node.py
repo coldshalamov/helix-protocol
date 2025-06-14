@@ -225,8 +225,14 @@ class HelixNode(GossipNode):
             event = message.get("event")
             if event:
                 try:
+                    evt_id = event.get("header", {}).get("statement_id")
+                    replaced = evt_id in self.events if evt_id else False
                     self.import_event(event)
                     self.save_state()
+                    if evt_id:
+                        print(
+                            f"Synced event {evt_id} index=N/A replaced={replaced}"
+                        )
                 except ValueError:
                     pass
         elif msg_type == GossipMessageType.MINED_MICROBLOCK:
@@ -259,8 +265,13 @@ class HelixNode(GossipNode):
                 current = minihelix.G(current, len(block))
             if current != block:
                 return
+            prev_seed = event["seeds"][index]
             event_manager.accept_mined_seed(event, index, seed, d)
+            replaced = prev_seed is not None and event["seeds"][index] != prev_seed
             event_manager.save_event(event, self.events_dir)
+            print(
+                f"Synced event {evt_id} index={index} replaced={replaced}"
+            )
         elif msg_type == GossipMessageType.FINALIZED:
             event = message.get("event")
             if not isinstance(event, dict):
