@@ -15,6 +15,8 @@ from .config import GENESIS_HASH
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 BASE_REWARD = 1.0
+# Base gas cost applied per microblock when a statement is submitted
+GAS_FEE_PER_MICROBLOCK = 1
 
 
 def nesting_penalty(depth: int) -> int:
@@ -34,10 +36,8 @@ def calculate_reward(base: float, depth: int) -> float:
     seed receives the full ``base`` amount, depth-2 receives half, and so
     on.  The result is rounded to four decimal places.
     """
-
     if depth < 1:
         raise ValueError("depth must be >= 1")
-
     reward = base / depth
     return round(reward, 4)
 
@@ -96,6 +96,7 @@ def create_event(
         "microblock_size": microblock_size,
         "block_count": block_count,
         "parent_id": parent_id,
+        "gas_fee": block_count * GAS_FEE_PER_MICROBLOCK,
     }
 
     originator_pub: Optional[str] = None
@@ -265,6 +266,7 @@ __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",
     "FINAL_BLOCK_PADDING_BYTE",
     "BASE_REWARD",
+    "GAS_FEE_PER_MICROBLOCK",
     "split_into_microblocks",
     "reassemble_microblocks",
     "create_event",

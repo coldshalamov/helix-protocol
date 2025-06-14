@@ -104,6 +104,27 @@ def cmd_list_events(args: argparse.Namespace) -> None:
         print(line)
 
 
+def cmd_reassemble_statement(args: argparse.Namespace) -> None:
+    """Reconstruct and verify a statement from mined microblocks."""
+    if args.path is not None:
+        event = event_manager.load_event(args.path)
+    else:
+        event = _load_event(args.event_id)
+
+    statement = event_manager.reassemble_microblocks(event["microblocks"])
+    digest = event_manager.sha256(statement.encode("utf-8"))
+    expected = event.get("header", {}).get("statement_id")
+    if digest != expected:
+        raise SystemExit("SHA-256 mismatch")
+
+    author = event.get("originator_pub")
+    print(f"Author: {author}")
+    for idx, (depth, seed) in enumerate(zip(event.get("seed_depths", []), event.get("seeds", []))):
+        length = len(seed) if seed is not None else 0
+        print(f"Block {idx}: depth={depth} seed_len={length}")
+    print(statement)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -146,6 +167,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--data-dir", default="data", help="Directory containing events")
     p_list.add_argument("--show-statement", action="store_true", help="Include raw statement text")
     p_list.set_defaults(func=cmd_list_events)
+
+    p_reasm = sub.add_parser("reassemble-statement", help="Reassemble a statement from microblocks")
+    group = p_reasm.add_mutually_exclusive_group(required=True)
+    group.add_argument("--event-id", help="Event identifier")
+    group.add_argument("--path", help="Path to event JSON file")
+    p_reasm.set_defaults(func=cmd_reassemble_statement)
 
     return parser
 
