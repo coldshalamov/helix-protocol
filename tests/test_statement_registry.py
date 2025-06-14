@@ -40,3 +40,10 @@ def test_rebuild_from_events(tmp_path):
     new_reg.rebuild_from_events(str(tmp_path))
     with pytest.raises(ValueError):
         event_manager.create_event("Finalized", registry=new_reg)
+
+
+def test_normalized_duplicate_detection():
+    registry = StatementRegistry(normalize=True)
+    event_manager.create_event("Aliens exist.", registry=registry, normalize=True)
+    with pytest.raises(ValueError):
+        event_manager.create_event("aliens exist", registry=registry, normalize=True)
