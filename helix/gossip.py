@@ -20,10 +20,17 @@ class LocalGossipNetwork:
 
     def send(self, sender_id: str, message: Dict[str, Any]) -> None:
         """Broadcast ``message`` from ``sender_id`` to all other nodes."""
+        msg_type = message.get("type")
+        log = msg_type in {"NEW_STATEMENT", "MINED_MICROBLOCK", "EVENT_FINALIZED"}
+        if log:
+            print(f"{sender_id} broadcasting {msg_type}")
         with self._lock:
             for node_id, node in self._nodes.items():
-                if node_id != sender_id:
-                    node._queue.put(message)
+                if node_id == sender_id:
+                    continue
+                node._queue.put(message)
+                if log:
+                    print(f"{node_id} received {msg_type}")
 
 
 class GossipNode:
