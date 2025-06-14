@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
 
-from .signature_utils import load_keys, sign_data
+from .signature_utils import load_keys, sign_data, verify_signature
 from .config import GENESIS_HASH
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
@@ -156,6 +156,35 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     return str(filename)
 
 
+def verify_originator_signature(event: Dict[str, Any]) -> bool:
+    """Verify the originator signature attached to ``event``.
+
+    The function computes the SHA-256 hash of the header (excluding the
+    signature fields) and verifies that ``originator_sig`` was produced
+    by the private key corresponding to ``originator_pub``.  If the
+    signature is present but does not validate, a ``ValueError`` is
+    raised.  The function returns ``True`` when the signature is valid
+    and ``False`` when the event lacks originator signature data.
+    """
+
+    header = event.get("header", {})
+    signature = header.get("originator_sig")
+    pubkey = header.get("originator_pub")
+
+    if signature is None or pubkey is None:
+        return False
+
+    payload = {
+        k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}
+    }
+    header_hash = sha256(repr(payload).encode("utf-8")).encode("utf-8")
+
+    if not verify_signature(header_hash, signature, pubkey):
+        raise ValueError("Invalid originator signature")
+
+    return True
+
+
 def validate_parent(event: Dict[str, Any], *, ancestors: Optional[set[str]] = None) -> None:
     if ancestors is None:
         ancestors = {GENESIS_HASH}
@@ -190,6 +219,7 @@ __all__ = [
     "reward_for_depth",
     "accept_mined_seed",
     "save_event",
+    "verify_originator_signature",
     "load_event",
     "validate_parent",
 ]
