@@ -15,6 +15,7 @@ from . import event_manager, minihelix, nested_miner
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances
 from .gossip import GossipNode, LocalGossipNetwork
+from .signature_utils import generate_keypair, sign_data, verify_signature
 
 
 
@@ -63,6 +64,8 @@ class HelixNode(GossipNode):
         microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
         genesis_file: str = "genesis.json",
         max_nested_depth: int = 3,
+        public_key: str | None = None,
+        private_key: str | None = None,
     ) -> None:
         if network is None:
             network = LocalGossipNetwork()
@@ -73,6 +76,10 @@ class HelixNode(GossipNode):
         self.genesis_file = genesis_file
         self.max_nested_depth = max_nested_depth
         self.genesis = self._load_genesis(genesis_file)
+        if public_key is None or private_key is None:
+            public_key, private_key = generate_keypair()
+        self.public_key = public_key
+        self.private_key = private_key
         self.events: Dict[str, Dict[str, Any]] = {}
         self.balances: Dict[str, int] = {}
         self.load_state()
@@ -157,6 +164,9 @@ class HelixNode(GossipNode):
                 # Call reward-aware acceptance function
                 event_manager.accept_mined_seed(event, idx, best_seed, best_depth)
 
+                payload = f"{evt_id}:{idx}:{best_seed.hex()}:{best_depth}".encode("utf-8")
+                signature = sign_data(payload, self.private_key)
+
                 self.send_message(
                     {
                         "type": GossipMessageType.MINED_MICROBLOCK,
@@ -164,6 +174,8 @@ class HelixNode(GossipNode):
                         "index": idx,
                         "seed": best_seed.hex(),
                         "depth": best_depth,
+                        "pubkey": self.public_key,
+                        "signature": signature,
                     }
                 )
 
@@ -234,11 +246,15 @@ class HelixNode(GossipNode):
             index = message.get("index")
             seed_hex = message.get("seed")
             depth = message.get("depth", 1)
+            pubkey = message.get("pubkey")
+            signature = message.get("signature")
             if (
                 not isinstance(evt_id, str)
                 or not isinstance(index, int)
                 or not isinstance(seed_hex, str)
             ):
+                return
+            if not isinstance(pubkey, str) or not isinstance(signature, str):
                 return
             event = self.events.get(evt_id)
             if not event:
@@ -254,6 +270,9 @@ class HelixNode(GossipNode):
                 d = int(depth)
             except Exception:
                 d = 1
+            payload = f"{evt_id}:{index}:{seed_hex}:{d}".encode("utf-8")
+            if not verify_signature(payload, signature, pubkey):
+                return
             current = seed
             for _ in range(d):
                 current = minihelix.G(current, len(block))
