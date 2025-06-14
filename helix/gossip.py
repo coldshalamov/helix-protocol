@@ -14,7 +14,7 @@ class LocalGossipNetwork:
         self._nodes: Dict[str, GossipNode] = {}
         self._lock = threading.Lock()
 
-    def register(self, node: "GossipNode") -> None:
+    def register(self, node: GossipNode) -> None:
         with self._lock:
             self._nodes[node.node_id] = node
 
@@ -29,31 +29,32 @@ class LocalGossipNetwork:
 class GossipNode:
     """Participant in a :class:`LocalGossipNetwork`."""
 
+    PRESENCE_PING = "PING"
+    PRESENCE_PONG = "PONG"
+
     def __init__(self, node_id: str, network: LocalGossipNetwork) -> None:
         self.node_id = node_id
         self.network = network
-        self._queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        self._queue: queue.Queue[Dict[str, Any]] = queue.Queue()
+        self.known_peers: set[str] = set()
         self._seen: set[str] = set()
         self.network.register(self)
 
     # ------------------------------------------------------------------
-    # messaging helpers
+    # Messaging helpers
+
     def _message_id(self, message: Dict[str, Any]) -> str | None:
         msg_type = message.get("type")
         if msg_type is None:
             return None
         if "event" in message:
-            event_id = (
-                message["event"].get("header", {}).get("statement_id")
-            )
+            event_id = message["event"].get("header", {}).get("statement_id")
         else:
             event_id = message.get("event_id")
         if event_id is None:
             return None
         idx = message.get("index")
-        if idx is not None:
-            return f"{msg_type}:{event_id}:{idx}"
-        return f"{msg_type}:{event_id}"
+        return f"{msg_type}:{event_id}:{idx}" if idx is not None else f"{msg_type}:{event_id}"
 
     def _mark_seen(self, message: Dict[str, Any]) -> None:
         msg_id = self._message_id(message)
@@ -75,9 +76,29 @@ class GossipNode:
             self._mark_seen(message)
             self.network.send(self.node_id, message)
 
+    # ------------------------------------------------------------------
+    # Presence handling
+
+    def broadcast_presence(self) -> None:
+        """Announce this node to all peers."""
+        self.send_message({"type": self.PRESENCE_PING, "sender": self.node_id})
+
+    def _handle_presence(self, message: Dict[str, Any]) -> None:
+        msg_type = message.get("type")
+        sender = message.get("sender")
+        if not sender or sender == self.node_id:
+            return
+        if msg_type == self.PRESENCE_PING:
+            self.known_peers.add(sender)
+            self.send_message({"type": self.PRESENCE_PONG, "sender": self.node_id})
+        elif msg_type == self.PRESENCE_PONG:
+            self.known_peers.add(sender)
+
     def receive(self, timeout: float | None = None) -> Dict[str, Any]:
-        """Return the next message for this node."""
-        return self._queue.get(timeout=timeout)
+        """Return the next message for this node and handle presence messages."""
+        msg = self._queue.get(timeout=timeout)
+        self._handle_presence(msg)
+        return msg
 
 
 __all__ = ["LocalGossipNetwork", "GossipNode"]

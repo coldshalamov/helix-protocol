@@ -22,3 +22,18 @@ def test_sender_does_not_receive_own_message():
         node_a.receive(timeout=0.1)
     msg = node_b.receive(timeout=1)
     assert msg["type"] == "SEED"
+
+
+def test_presence_ping_pong():
+    network = LocalGossipNetwork()
+    node_a = GossipNode("A", network)
+    node_b = GossipNode("B", network)
+
+    node_a.broadcast_presence()
+    ping = node_b.receive(timeout=1)
+    assert ping["type"] == GossipNode.PRESENCE_PING
+    assert node_b.known_peers == {"A"}
+
+    pong = node_a.receive(timeout=1)
+    assert pong["type"] == GossipNode.PRESENCE_PONG
+    assert node_a.known_peers == {"B"}
