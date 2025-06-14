@@ -128,6 +128,7 @@ class GossipNode:
 class GossipMessageType:
     """Basic gossip message types used between :class:`HelixNode` peers."""
     NEW_STATEMENT = "NEW_STATEMENT"
+    MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
 
 
@@ -261,6 +262,16 @@ class HelixNode(GossipNode):
                 # Call reward-aware acceptance function
                 event_manager.accept_mined_seed(event, idx, best_seed, best_depth)
 
+                self.send_message(
+                    {
+                        "type": GossipMessageType.MINED_MICROBLOCK,
+                        "event_id": evt_id,
+                        "index": idx,
+                        "seed": best_seed.hex(),
+                        "depth": best_depth,
+                    }
+                )
+
                 # Emit debug info on rejection
                 if previous_seed is not None and event["seeds"][idx] == previous_seed:
                     reason = []
@@ -323,6 +334,38 @@ class HelixNode(GossipNode):
                     self.save_state()
                 except ValueError:
                     pass
+        elif msg_type == GossipMessageType.MINED_MICROBLOCK:
+            evt_id = message.get("event_id")
+            index = message.get("index")
+            seed_hex = message.get("seed")
+            depth = message.get("depth", 1)
+            if (
+                not isinstance(evt_id, str)
+                or not isinstance(index, int)
+                or not isinstance(seed_hex, str)
+            ):
+                return
+            event = self.events.get(evt_id)
+            if not event:
+                return
+            if index < 0 or index >= len(event["microblocks"]):
+                return
+            try:
+                seed = bytes.fromhex(seed_hex)
+            except ValueError:
+                return
+            block = event["microblocks"][index]
+            try:
+                d = int(depth)
+            except Exception:
+                d = 1
+            current = seed
+            for _ in range(d):
+                current = minihelix.G(current, len(block))
+            if current != block:
+                return
+            event_manager.accept_mined_seed(event, index, seed, d)
+            event_manager.save_event(event, self.events_dir)
         elif msg_type == GossipMessageType.FINALIZED:
             event = message.get("event")
             if not isinstance(event, dict):
