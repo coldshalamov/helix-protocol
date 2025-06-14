@@ -63,13 +63,12 @@ def cmd_mine(args: argparse.Namespace) -> None:
         if result is None:
             print(f"No seed found for block {idx}")
             continue
-        chain, _ = result
-        seed = chain[0]
-        if not minihelix.verify_seed(seed, block):
+        chain, depth = result
+        if not nested_miner.verify_nested_seed(chain, block):
             print(f"Seed verification failed for block {idx}")
             continue
-        event["seeds"][idx] = seed
-        event_manager.mark_mined(event, idx)
+        seed = chain[0]
+        event_manager.accept_mined_seed(event, idx, seed, depth)
         print(f"Mined microblock {idx}")
     event_manager.save_event(event, str(events_dir))
 
