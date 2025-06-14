@@ -1,318 +1,266 @@
-"""Minimal Helix node implementation built on :mod:`helix.gossip`."""
-
-from __future__ import annotations
-
 import hashlib
+import math
 import json
+import base64
 import os
 import queue
-import threading
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
-from . import event_manager, minihelix, nested_miner
+if TYPE_CHECKING:
+    from .statement_registry import StatementRegistry
+
+from .signature_utils import load_keys, sign_data, verify_signature, generate_keypair
+from nacl import signing
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances
 from .gossip import GossipNode, LocalGossipNetwork
+from . import event_manager, minihelix, nested_miner
+from .gossip import GossipMessageType
+
+DEFAULT_MICROBLOCK_SIZE = 8  # bytes
+FINAL_BLOCK_PADDING_BYTE = b"\x00"
+BASE_REWARD = 1.0
+GAS_FEE_PER_MICROBLOCK = 1
 
 
-
-class GossipMessageType:
-    """Basic gossip message types used between :class:`HelixNode` peers."""
-    NEW_STATEMENT = "NEW_STATEMENT"
-    MINED_MICROBLOCK = "MINED_MICROBLOCK"
-    FINALIZED = "FINALIZED"
+def nesting_penalty(depth: int) -> int:
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+    return depth - 1
 
 
-def simulate_mining(index: int) -> None:
-    """Placeholder hook executed before mining ``index``."""
-    return None
+def reward_for_depth(depth: int) -> float:
+    return BASE_REWARD / depth
 
 
-def find_seed(target: bytes, attempts: int = 1_000_000) -> Optional[bytes]:
-    """Search for a seed regenerating ``target``."""
-    return minihelix.mine_seed(target, max_attempts=attempts)
+def calculate_reward(base: float, depth: int) -> float:
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+    reward = base / depth
+    return round(reward, 4)
 
 
-def verify_seed(seed: bytes, target: bytes) -> bool:
-    """Verify ``seed`` regenerates ``target``."""
-    return minihelix.verify_seed(seed, target)
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
-def verify_statement_id(event: Dict[str, Any]) -> bool:
-    """Return ``True`` if the statement_id matches the statement hash."""
-    statement = event.get("statement")
-    stmt_id = event.get("header", {}).get("statement_id")
-    if not isinstance(statement, str) or not stmt_id:
+def pad_block(data: bytes, size: int) -> bytes:
+    if len(data) < size:
+        return data + FINAL_BLOCK_PADDING_BYTE * (size - len(data))
+    return data
+
+
+def split_into_microblocks(statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE) -> Tuple[List[bytes], int, int]:
+    encoded = statement.encode("utf-8")
+    total_len = len(encoded)
+    block_count = math.ceil(total_len / microblock_size)
+    blocks = [pad_block(encoded[i:i + microblock_size], microblock_size) for i in range(0, total_len, microblock_size)]
+    return blocks, block_count, total_len
+
+
+def reassemble_microblocks(blocks: List[bytes]) -> str:
+    payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
+    return payload.decode("utf-8")
+
+
+def create_event(
+    statement: str,
+    microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
+    *,
+    parent_id: str = GENESIS_HASH,
+    private_key: Optional[str] = None,
+    registry: Optional["StatementRegistry"] = None,
+) -> Dict[str, Any]:
+    microblocks, block_count, total_len = split_into_microblocks(statement, microblock_size)
+    statement_id = sha256(statement.encode("utf-8"))
+    if registry is not None:
+        if registry.has_id(statement_id):
+            print(f"Duplicate statement_id {statement_id} already finalized; skipping")
+            raise ValueError("Duplicate statement")
+        registry.check_and_add(statement)
+
+    header = {
+        "statement_id": statement_id,
+        "original_length": total_len,
+        "microblock_size": microblock_size,
+        "block_count": block_count,
+        "parent_id": parent_id,
+        "gas_fee": block_count * GAS_FEE_PER_MICROBLOCK,
+    }
+
+    originator_pub: Optional[str] = None
+    originator_sig: Optional[str] = None
+    if private_key is not None:
+        key_bytes = base64.b64decode(private_key)
+        signing_key = signing.SigningKey(key_bytes)
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
+        originator_sig = sign_data(statement.encode("utf-8"), private_key)
+
+    event = {
+        "header": header,
+        "statement": statement,
+        "microblocks": microblocks,
+        "mined_status": [False] * block_count,
+        "seeds": [None] * block_count,
+        "seed_depths": [0] * block_count,
+        "penalties": [0] * block_count,
+        "rewards": [0.0] * block_count,
+        "refunds": [0.0] * block_count,
+        "miners": [None] * block_count,
+        "is_closed": False,
+        "bets": {"YES": [], "NO": []},
+    }
+    if originator_pub is not None:
+        event["originator_pub"] = originator_pub
+        event["originator_sig"] = originator_sig
+    return event
+
+
+def mark_mined(event: Dict[str, Any], index: int) -> None:
+    if event["is_closed"]:
+        return
+    event["mined_status"][index] = True
+    if all(event["mined_status"]):
+        event["is_closed"] = True
+        print(f"Event {event['header']['statement_id']} is now closed.")
+
+
+def accept_mined_seed(
+    event: Dict[str, Any],
+    index: int,
+    seed: bytes,
+    depth: int,
+    *,
+    miner: Optional[str] = None,
+) -> float:
+    penalty = nesting_penalty(depth)
+    reward = reward_for_depth(depth)
+    refund = 0.0
+
+    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    if len(seed) > microblock_size:
+        raise ValueError("seed length exceeds microblock size")
+
+    if event["seeds"][index] is None:
+        event["seeds"][index] = seed
+        event["seed_depths"][index] = depth
+        event["penalties"][index] = penalty
+        event["rewards"][index] = reward
+        if "miners" in event:
+            event["miners"][index] = miner
+        mark_mined(event, index)
+        return 0.0
+
+    old_seed = event["seeds"][index]
+    old_depth = event["seed_depths"][index]
+
+    replace = False
+    if len(seed) < len(old_seed):
+        replace = True
+    elif len(seed) == len(old_seed) and depth < old_depth:
+        replace = True
+
+    if replace:
+        refund = event["rewards"][index] - reward
+        event["seeds"][index] = seed
+        event["seed_depths"][index] = depth
+        event["penalties"][index] = penalty
+        event["rewards"][index] = reward
+        if "miners" in event:
+            event["miners"][index] = miner
+        event["refunds"][index] += refund
+        print(
+            f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
+        )
+
+    return refund
+
+
+def save_event(event: Dict[str, Any], directory: str) -> str:
+    path = Path(directory)
+    path.mkdir(parents=True, exist_ok=True)
+    filename = path / f"{event['header']['statement_id']}.json"
+    data = event.copy()
+    data["microblocks"] = [b.hex() for b in event["microblocks"]]
+    if "seeds" in data:
+        data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return str(filename)
+
+
+def verify_originator_signature(event: Dict[str, Any]) -> bool:
+    header = event.get("header", {})
+    signature = header.get("originator_sig")
+    pubkey = header.get("originator_pub")
+
+    if signature is None or pubkey is None:
         return False
-    digest = hashlib.sha256(statement.encode("utf-8")).hexdigest()
-    return digest == stmt_id
+
+    payload = {k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}}
+    header_hash = sha256(repr(payload).encode("utf-8")).encode("utf-8")
+
+    if not verify_signature(header_hash, signature, pubkey):
+        raise ValueError("Invalid originator signature")
+
+    return True
 
 
-class HelixNode(GossipNode):
-    """Minimal Helix node used for tests."""
+def verify_event_signature(event: Dict[str, Any]) -> bool:
+    signature = event.get("originator_sig")
+    pubkey = event.get("originator_pub")
+    statement = event.get("statement")
 
-    def __init__(
-        self,
-        *,
-        events_dir: str,
-        balances_file: str,
-        node_id: str = "NODE",
-        network: Optional[LocalGossipNetwork] = None,
-        microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
-        genesis_file: str = "genesis.json",
-        max_nested_depth: int = 3,
-    ) -> None:
-        if network is None:
-            network = LocalGossipNetwork()
-        super().__init__(node_id, network)
-        self.events_dir = events_dir
-        self.balances_file = balances_file
-        self.microblock_size = microblock_size
-        self.genesis_file = genesis_file
-        self.max_nested_depth = max_nested_depth
-        self.genesis = self._load_genesis(genesis_file)
-        self.events: Dict[str, Dict[str, Any]] = {}
-        self.balances: Dict[str, int] = {}
-        self.load_state()
+    if signature is None or pubkey is None or statement is None:
+        return False
 
-    def _load_genesis(self, path: str) -> dict:
-        data = Path(path).read_bytes()
-        digest = hashlib.sha256(data).hexdigest()
-        if digest != GENESIS_HASH:
-            raise ValueError("genesis.json does not match GENESIS_HASH")
-        return json.loads(data.decode("utf-8"))
+    if not verify_signature(statement.encode("utf-8"), signature, pubkey):
+        raise ValueError("Invalid event signature")
 
-    def load_state(self) -> None:
-        Path(self.events_dir).mkdir(parents=True, exist_ok=True)
-        for fname in os.listdir(self.events_dir):
-            if not fname.endswith(".json"):
-                continue
-            try:
-                event = event_manager.load_event(os.path.join(self.events_dir, fname))
-            except Exception:
-                continue
-            if event.get("header", {}).get("parent_id") != GENESIS_HASH:
-                continue
-            self.events[event["header"]["statement_id"]] = event
-        self.balances = load_balances(self.balances_file)
+    return True
 
-    def save_state(self) -> None:
-        for event in self.events.values():
-            event_manager.save_event(event, self.events_dir)
-        save_balances(self.balances, self.balances_file)
 
-    def create_event(self, statement: str, *, private_key: Optional[str] = None) -> dict:
-        return event_manager.create_event(
-            statement,
-            microblock_size=self.microblock_size,
-            parent_id=GENESIS_HASH,
-            private_key=private_key,
-        )
+def validate_parent(event: Dict[str, Any], *, ancestors: Optional[set[str]] = None) -> None:
+    if ancestors is None:
+        ancestors = {GENESIS_HASH}
+    parent_id = event.get("header", {}).get("parent_id")
+    if parent_id not in ancestors:
+        raise ValueError("invalid parent_id")
 
-    def import_event(self, event: dict) -> None:
-        if event.get("header", {}).get("parent_id") != GENESIS_HASH:
-            raise ValueError("invalid parent_id")
-        evt_id = event["header"]["statement_id"]
-        self.events[evt_id] = event
 
-    def mine_event(self, event: dict) -> None:
-        evt_id = event["header"]["statement_id"]
-        for idx, block in enumerate(event["microblocks"]):
-            if event.get("is_closed"):
-                break
-            if event["seeds"][idx]:
-                continue
-            simulate_mining(idx)
-            best_seed: Optional[bytes] = None
-            best_depth = 0
-            best_chain: Optional[list[bytes]] = None
-
-            seed = find_seed(block)
-            if seed and verify_seed(seed, block):
-                best_seed = seed
-                best_depth = 1
-
-            for depth in range(2, self.max_nested_depth + 1):
-                if best_seed is not None and best_depth <= depth:
-                    break
-                result = nested_miner.find_nested_seed(block, max_depth=depth)
-                if result:
-                    chain, found_depth = result
-                    if not nested_miner.verify_nested_seed(chain, block):
-                        continue
-                    candidate = chain[0]
-                    if (
-                        best_seed is None
-                        or found_depth < best_depth
-                        or (found_depth == best_depth and len(candidate) < len(best_seed))
-                    ):
-                        best_seed = candidate
-                        best_depth = found_depth
-                        best_chain = chain
-
-            if best_seed is not None and best_chain is not None:
-                previous_seed = event["seeds"][idx]
-                previous_depth = event["seed_depths"][idx]
-
-                # Call reward-aware acceptance function
-                event_manager.accept_mined_seed(event, idx, best_chain)
-
-                self.send_message(
-                    {
-                        "type": GossipMessageType.MINED_MICROBLOCK,
-                        "event_id": evt_id,
-                        "index": idx,
-                        "seed": best_seed.hex(),
-                        "depth": best_depth,
-                    }
-                )
-
-                # Emit debug info on rejection
-                if previous_seed is not None and event["seeds"][idx] == previous_seed:
-                    reason = []
-                    if len(best_seed) != len(previous_seed):
-                        reason.append("same length")
-                    if best_depth >= previous_depth:
-                        reason.append("depth not improved")
-                    print(f"Seed for block {idx} rejected ({', '.join(reason)})")
-
-                event_manager.save_event(event, self.events_dir)
-
-                if event.get("is_closed"):
-                    self.finalize_event(event)
-                    break
-
-    def finalize_event(self, event: dict) -> None:
-        yes_bets = event.get("bets", {}).get("YES", [])
-        no_bets = event.get("bets", {}).get("NO", [])
-
-        yes_total = sum(b.get("amount", 0) for b in yes_bets)
-        no_total = sum(b.get("amount", 0) for b in no_bets)
-
-        # Determine winning outcome based on total bet amounts
-        success = yes_total > no_total
-        winners = yes_bets if success else no_bets
-        winner_total = yes_total if success else no_total
-
-        pot = yes_total + no_total
-        refund = 0.0
-        originator = event.get("header", {}).get("originator_pub")
-        if success and originator:
-            refund = pot * 0.01
-            self.balances[originator] = self.balances.get(originator, 0) + refund
-            pot -= refund
-
-        if winner_total > 0:
-            for bet in winners:
-                pub = bet.get("pubkey")
-                amt = bet.get("amount", 0)
-                if pub:
-                    payout = pot * (amt / winner_total)
-                    self.balances[pub] = self.balances.get(pub, 0) + payout
-
-        self.save_state()
-        self.send_message(
-            {
-                "type": GossipMessageType.FINALIZED,
-                "event": event,
-                "balances": self.balances,
-            }
-        )
-
-    def _handle_message(self, message: Dict[str, Any]) -> None:
-        msg_type = message.get("type")
-        if msg_type == GossipMessageType.NEW_STATEMENT:
-            event = message.get("event")
-            if event:
-                try:
-                    self.import_event(event)
-                    self.save_state()
-                except ValueError:
-                    pass
-        elif msg_type == GossipMessageType.MINED_MICROBLOCK:
-            evt_id = message.get("event_id")
-            index = message.get("index")
-            seed_hex = message.get("seed")
-            depth = message.get("depth", 1)
-            if (
-                not isinstance(evt_id, str)
-                or not isinstance(index, int)
-                or not isinstance(seed_hex, str)
-            ):
-                return
-            event = self.events.get(evt_id)
-            if not event:
-                return
-            if index < 0 or index >= len(event["microblocks"]):
-                return
-            try:
-                seed = bytes.fromhex(seed_hex)
-            except ValueError:
-                return
-            block = event["microblocks"][index]
-            try:
-                d = int(depth)
-            except Exception:
-                d = 1
-            chain = [seed]
-            current = seed
-            for _ in range(1, d):
-                current = minihelix.G(current, len(block))
-                chain.append(current)
-            current = minihelix.G(current, len(block))
-            if current != block:
-                return
-            event_manager.accept_mined_seed(event, index, chain)
-            event_manager.save_event(event, self.events_dir)
-        elif msg_type == GossipMessageType.FINALIZED:
-            event = message.get("event")
-            if not isinstance(event, dict):
-                return
-            if not verify_statement_id(event):
-                return
-            try:
-                event_manager.validate_parent(event)
-            except ValueError:
-                return
-            evt_id = event.get("header", {}).get("statement_id")
-            if not evt_id:
-                return
-            if evt_id not in self.events:
-                self.import_event(event)
-            else:
-                self.events[evt_id].update(event)
-            self.events[evt_id]["is_closed"] = True
-
-            balances = message.get("balances")
-            if isinstance(balances, dict):
-                for k, v in balances.items():
-                    self.balances[k] = v
-            else:
-                for bet in event.get("bets", {}).get("YES", []):
-                    pub = bet.get("pubkey")
-                    amt = bet.get("amount", 0)
-                    if pub:
-                        self.balances[pub] = self.balances.get(pub, 0) + amt
-            self.save_state()
-
-    def _message_loop(self) -> None:
-        while True:
-            try:
-                msg = self.receive(timeout=1.0)
-            except queue.Empty:
-                continue
-            self._handle_message(msg)
+def load_event(path: str) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
+    if "seeds" in data:
+        data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+    block_count = len(data.get("microblocks", []))
+    data.setdefault("seed_depths", [0] * block_count)
+    data.setdefault("penalties", [0] * block_count)
+    data.setdefault("rewards", [0.0] * block_count)
+    data.setdefault("refunds", [0.0] * block_count)
+    data.setdefault("miners", [None] * block_count)
+    validate_parent(data)
+    return data
 
 
 __all__ = [
-    "LocalGossipNetwork",
-    "GossipNode",
-    "GossipMessageType",
-    "HelixNode",
-    "simulate_mining",
-    "find_seed",
-    "verify_seed",
-    "verify_statement_id",
+    "DEFAULT_MICROBLOCK_SIZE",
+    "FINAL_BLOCK_PADDING_BYTE",
+    "BASE_REWARD",
+    "GAS_FEE_PER_MICROBLOCK",
+    "split_into_microblocks",
+    "reassemble_microblocks",
+    "create_event",
+    "mark_mined",
+    "nesting_penalty",
+    "reward_for_depth",
+    "calculate_reward",
+    "accept_mined_seed",
+    "save_event",
+    "verify_originator_signature",
+    "verify_event_signature",
+    "load_event",
+    "validate_parent",
 ]

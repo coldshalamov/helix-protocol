@@ -1,10 +1,13 @@
 import argparse
+import hashlib
 import json
+import hashlib
 from pathlib import Path
 
 from .helix_node import HelixNode
 from .gossip import LocalGossipNetwork
 from . import signature_utils
+from .config import GENESIS_HASH
 import threading
 import time
 from . import event_manager
@@ -13,6 +16,21 @@ from . import nested_miner
 from . import minihelix
 from . import betting_interface
 from .ledger import load_balances, compression_stats
+
+
+def _default_genesis_file() -> str:
+    """Return the path to ``helix/genesis.json`` ensuring it matches ``GENESIS_HASH``."""
+    path = Path(__file__).resolve().parent / "genesis.json"
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        print(f"Genesis file missing: {path}")
+        raise SystemExit(1)
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != GENESIS_HASH:
+        print("Genesis file hash mismatch")
+        raise SystemExit(1)
+    return str(path)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -41,7 +59,11 @@ def _load_event(path: Path) -> dict:
 def cmd_start_node(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
     balances_file = Path(args.data_dir) / "balances.json"
-    node = HelixNode(events_dir=str(events_dir), balances_file=str(balances_file))
+    node = HelixNode(
+        events_dir=str(events_dir),
+        balances_file=str(balances_file),
+        genesis_file=_default_genesis_file(),
+    )
     print(f"Starting node on port {args.port} with data dir {args.data_dir}")
     node.run()
 
@@ -157,6 +179,7 @@ def cmd_helix_node(args: argparse.Namespace) -> None:
         balances_file=str(balances_file),
         node_id=pub[:8],
         network=network,
+        genesis_file=_default_genesis_file(),
     )
 
     threading.Thread(target=node._message_loop, daemon=True).start()
@@ -196,6 +219,66 @@ def cmd_reassemble(args: argparse.Namespace) -> None:
         raise SystemExit("Padding trim verification failed")
 
     print(statement)
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Check the data directory and config for common problems."""
+
+    ok = True
+
+    genesis_path = Path("genesis.json")
+    if not genesis_path.exists():
+        print("WARNING: genesis.json not found - run genesis.py to create it")
+        ok = False
+    else:
+        digest = hashlib.sha256(genesis_path.read_bytes()).hexdigest()
+        if digest != GENESIS_HASH:
+            print(
+                "WARNING: genesis.json hash mismatch - update GENESIS_HASH or regenerate the file"
+            )
+            ok = False
+
+    data_dir = Path(args.data_dir)
+    wallet_file = data_dir / "wallet.txt"
+    if not wallet_file.exists():
+        print(
+            f"WARNING: no wallet file found at {wallet_file} - run 'helix helix-node' or generate keys"
+        )
+        ok = False
+
+    peers_file = data_dir / "peers.json"
+    peers: list[str] = []
+    if peers_file.exists():
+        try:
+            peers = json.loads(peers_file.read_text())
+        except Exception:
+            peers = []
+    if not peers:
+        print(
+            "WARNING: no peers connected - create peers.json or start another node"
+        )
+        ok = False
+
+    events_dir = data_dir / "events"
+    unmined: list[str] = []
+    if events_dir.exists():
+        for path in events_dir.glob("*.json"):
+            try:
+                event = event_manager.load_event(str(path))
+            except Exception:
+                continue
+            if not all(event.get("mined_status", [])):
+                unmined.append(path.stem)
+    if unmined:
+        print(
+            "WARNING: unmined events detected - run 'helix mine <id>' to finish mining"
+        )
+        for eid in unmined:
+            print(f"  - {eid}")
+        ok = False
+
+    if ok:
+        print("No issues detected")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -249,6 +332,9 @@ def main(argv: list[str] | None = None) -> None:
     group.add_argument("--event-id", help="Event identifier")
     group.add_argument("--path", help="Path to event JSON file")
     p_reassemble.set_defaults(func=cmd_reassemble)
+
+    p_doctor = sub.add_parser("doctor", help="Check configuration for problems")
+    p_doctor.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args(argv)
     args.func(args)
