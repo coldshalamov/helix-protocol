@@ -12,4 +12,5 @@ __all__ = [
     "gossip",
     "peer_discovery",
     "ui",
+    "archive",
 ]
