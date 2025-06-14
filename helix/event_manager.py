@@ -1,3 +1,11 @@
+from __future__ import annotations
+
+import hashlib
+from typing import Any, Dict, List, Optional
+
+from .signature_utils import verify_signature
+
+
 def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
     """Accept ``seed_chain`` for microblock ``index`` of ``event``.
 
@@ -52,3 +60,45 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         )
 
     return refund
+
+
+def verify_event_signature(event: Dict[str, Any]) -> bool:
+    """Verify the originator signature on the event statement.
+
+    The ``originator_pub`` key must correspond to the private key that
+    produced ``originator_sig`` over the event's ``statement``.  If the
+    signature is present but invalid a :class:`ValueError` is raised.  The
+    function returns ``True`` when a valid signature is present and ``False``
+    when the event lacks signature information.
+    """
+
+    signature = event.get("originator_sig")
+    pubkey = event.get("originator_pub")
+    statement = event.get("statement")
+
+    if signature is None or pubkey is None or statement is None:
+        return False
+
+    if not verify_signature(statement.encode("utf-8"), signature, pubkey):
+        raise ValueError("Invalid event signature")
+
+    return True
+
+
+def verify_originator_signature(event: Dict[str, Any]) -> bool:
+    """Verify the signature embedded in the event header."""
+
+    header = event.get("header", {})
+    signature = header.get("originator_sig")
+    pubkey = header.get("originator_pub")
+
+    if signature is None or pubkey is None:
+        return False
+
+    payload = {k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}}
+    header_hash = hashlib.sha256(repr(payload).encode("utf-8")).digest()
+
+    if not verify_signature(header_hash, signature, pubkey):
+        raise ValueError("Invalid originator signature")
+
+    return True
