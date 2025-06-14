@@ -67,6 +67,14 @@ Install Python dependencies with:
 pip install -r requirements.txt
 ```
 
+## 🚦 Experimental Networking Layer
+
+The initial prototype linked nodes using the in-memory `LocalGossipNetwork`.
+To run nodes across machines, the new `helix.network` package introduces
+socket-based transports for exchanging JSON gossip messages. This
+architecture is designed to evolve toward peer discovery, message routing,
+and optional encryption.
+
 ## 🤝 Get Involved
 
 We're seeking contributors in:
