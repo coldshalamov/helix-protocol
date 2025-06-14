@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
+import queue
 import random
 import threading
 import time
@@ -12,11 +15,29 @@ try:
     from .signature_utils import verify_signature
     from .ledger import load_balances, save_balances
     from .miner import find_seed
+    from .minihelix import verify_seed
+    from .gossip import GossipNode, LocalGossipNetwork
 except ImportError:  # pragma: no cover - allow running as a script
     from helix import event_manager
     from helix.signature_utils import verify_signature
     from helix.ledger import load_balances, save_balances
     from helix.miner import find_seed
+from helix.minihelix import verify_seed
+from helix.gossip import GossipNode, LocalGossipNetwork
+
+# ----------------------------------------------------------------------------
+# Gossip message definitions
+# ----------------------------------------------------------------------------
+
+GossipMessage = Dict[str, Any]
+
+
+class GossipMessageType:
+    """Simple enumeration of gossip message types."""
+
+    NEW_STATEMENT = "NEW_STATEMENT"
+    MINED_MICROBLOCK = "MINED_MICROBLOCK"
+    EVENT_FINALIZED = "EVENT_FINALIZED"
 
 # ----------------------------------------------------------------------------
 # Signature Verification
@@ -66,7 +87,7 @@ def auto_resolve_bets(event: Dict[str, Any]) -> None:
 # Core node logic
 # ----------------------------------------------------------------------------
 
-class HelixNode:
+class HelixNode(GossipNode):
     """A basic Helix protocol node that mines incoming statements."""
 
     def __init__(
@@ -75,12 +96,82 @@ class HelixNode:
         *,
         events_dir: str = "events",
         balances_file: str = "balances.json",
+        node_id: str | None = None,
+        network: LocalGossipNetwork | None = None,
+        peers_file: str = "peers.json",
     ) -> None:
+        if network is None:
+            network = LocalGossipNetwork()
+        if node_id is None:
+            node_id = hex(random.randint(0, 0xFFFF))[2:]
+        super().__init__(node_id, network)
         self.microblock_size = microblock_size
         self.logger = logging.getLogger(self.__class__.__name__)
         self.events_dir = events_dir
         self.balances_file = balances_file
+        self.peers_file = peers_file
         self.balances = load_balances(self.balances_file)
+        self.events: Dict[str, Dict[str, Any]] = {}
+        self.known_peers: set[str] = set()
+        self.load_state()
+        self.update_known_peers()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+    def update_known_peers(self) -> None:
+        """Refresh the set of known peers from the network."""
+        try:
+            self.known_peers = set(self.network._nodes.keys())
+            self.save_state()
+        except Exception as exc:  # pragma: no cover - best effort logging
+            print(f"Failed to update peers: {exc}")
+
+    def load_state(self) -> None:
+        """Load events and peers from disk."""
+        # Load peers
+        if os.path.exists(self.peers_file):
+            try:
+                with open(self.peers_file, "r", encoding="utf-8") as fh:
+                    peers = json.load(fh)
+                    if isinstance(peers, list):
+                        self.known_peers = set(peers)
+            except Exception as exc:  # pragma: no cover - best effort
+                print(f"Error loading peers: {exc}")
+
+        # Load events
+        if os.path.isdir(self.events_dir):
+            for fname in os.listdir(self.events_dir):
+                if not fname.endswith(".json"):
+                    continue
+                path = os.path.join(self.events_dir, fname)
+                try:
+                    event = event_manager.load_event(path)
+                    evt_id = event["header"]["statement_id"]
+                    self.events[evt_id] = event
+                except Exception as exc:  # pragma: no cover - best effort
+                    print(f"Failed to load event {fname}: {exc}")
+
+        # Resume mining for incomplete events
+        for evt in list(self.events.values()):
+            if not evt.get("is_closed"):
+                threading.Thread(target=self.mine_event, args=(evt,)).start()
+
+    def save_state(self) -> None:
+        """Persist known peers and events to disk."""
+        try:
+            with open(self.peers_file, "w", encoding="utf-8") as fh:
+                json.dump(list(self.known_peers), fh, indent=2)
+        except Exception as exc:  # pragma: no cover - best effort
+            print(f"Error saving peers: {exc}")
+
+        for event in self.events.values():
+            try:
+                event_manager.save_event(event, self.events_dir)
+            except Exception as exc:  # pragma: no cover - best effort
+                print(
+                    f"Failed to save event {event['header']['statement_id']}: {exc}"
+                )
 
     # ------------------------------------------------------------------
     # Event lifecycle
@@ -109,6 +200,13 @@ class HelixNode:
         seed = find_seed(target, attempts=10000)  # simplified search
         if seed is not None:
             event["seeds"][index] = seed
+            msg = {
+                "type": GossipMessageType.MINED_MICROBLOCK,
+                "event_id": event["header"]["statement_id"],
+                "index": index,
+                "seed": seed.hex(),
+            }
+            self.send_message(msg)
         event_manager.mark_mined(event, index)
         mined = sum(1 for m in event["mined_status"] if m)
         total = len(event["microblocks"])
@@ -141,8 +239,76 @@ class HelixNode:
             self.logger.info("Saved event to %s", path)
             statement = event_manager.reassemble_microblocks(event["microblocks"])
             self.logger.info("Event closed. Reassembled statement: %s", statement)
+            self.send_message(
+                {
+                    "type": GossipMessageType.EVENT_FINALIZED,
+                    "event_id": event["header"]["statement_id"],
+                }
+            )
         else:
             self.logger.warning("Event did not close properly")
+
+    # ------------------------------------------------------------------
+    # Gossip message handling
+    # ------------------------------------------------------------------
+    def handle_message(self, message: GossipMessage) -> None:
+        """Process an incoming gossip message."""
+        try:
+            mtype = message.get("type")
+            if mtype == GossipMessageType.NEW_STATEMENT:
+                event = message.get("event")
+                if not isinstance(event, dict):
+                    return
+                evt_id = event.get("header", {}).get("statement_id")
+                if not evt_id or evt_id in self.events:
+                    return
+                print(f"Node {self.node_id}: received new statement {evt_id}")
+                self.events[evt_id] = event
+                self.save_state()
+                threading.Thread(target=self.mine_event, args=(event,)).start()
+
+            elif mtype == GossipMessageType.MINED_MICROBLOCK:
+                evt_id = message.get("event_id")
+                index = message.get("index")
+                seed_hex = message.get("seed")
+                if (
+                    evt_id not in self.events
+                    or seed_hex is None
+                    or index is None
+                ):
+                    return
+                event = self.events[evt_id]
+                if index < 0 or index >= len(event["microblocks"]):
+                    return
+                if event["mined_status"][index]:
+                    return
+                seed = bytes.fromhex(seed_hex)
+                block = event["microblocks"][index]
+                if verify_seed(seed, block):
+                    print(
+                        f"Node {self.node_id}: verified microblock {index} for {evt_id}"
+                    )
+                    event["seeds"][index] = seed
+                    event_manager.mark_mined(event, index)
+                    self.save_state()
+                    # rebroadcast valid proof
+                    self.send_message(message)
+
+            elif mtype == GossipMessageType.EVENT_FINALIZED:
+                evt_id = message.get("event_id")
+                if evt_id in self.events:
+                    print(f"Node {self.node_id}: event {evt_id} finalized")
+        except Exception as exc:  # pragma: no cover - best effort
+            print(f"Error handling message: {exc}")
+
+    def _message_loop(self) -> None:
+        """Background thread to process incoming gossip messages."""
+        while True:
+            try:
+                msg = self.receive(timeout=1)
+            except queue.Empty:
+                continue
+            self.handle_message(msg)
 
     # ------------------------------------------------------------------
     # Bet resolution
@@ -175,9 +341,17 @@ class HelixNode:
 
     def run(self) -> None:
         """Main execution loop for the node."""
+        listener = threading.Thread(target=self._message_loop, daemon=True)
+        listener.start()
+
         for statement in self.listen_for_statements():
             event = self.create_event(statement)
+            evt_id = event["header"]["statement_id"]
+            self.events[evt_id] = event
+            self.save_state()
+            self.send_message({"type": GossipMessageType.NEW_STATEMENT, "event": event})
             self.mine_event(event)
+            self.save_state()
             self.logger.info("Final event state: %s", event)
 
 
