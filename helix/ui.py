@@ -1,12 +1,11 @@
 import json
 import threading
-from typing import Optional
 
 from .betting_interface import submit_bet, record_bet
 from .helix_node import HelixNode, GossipMessageType
 
 
-def run_cli(node: HelixNode, *, keyfile: Optional[str] = None) -> None:
+def run_cli(node: HelixNode, *, keyfile: str | None = None) -> None:
     """Simple interactive CLI for a :class:`HelixNode`."""
 
     threading.Thread(target=node._message_loop, daemon=True).start()

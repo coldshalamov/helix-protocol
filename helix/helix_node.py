@@ -7,7 +7,7 @@ def mine_event(self, event: dict) -> None:
             continue
         simulate_mining(idx)
 
-        best_seed: Optional[bytes] = None
+        best_seed: bytes | None = None
         best_depth = 0
 
         # Attempt flat mining
