@@ -5,6 +5,11 @@ pytest.importorskip("nacl")
 from helix import cli, event_manager, minihelix
 
 
+@pytest.fixture(autouse=True)
+def _mock_verify(monkeypatch):
+    monkeypatch.setattr(event_manager.nested_miner, "verify_nested_seed", lambda c, b: True)
+
+
 def test_cli_mine_nested(tmp_path, monkeypatch):
     event = event_manager.create_event("ab", microblock_size=2)
     event_manager.save_event(event, str(tmp_path / "events"))
