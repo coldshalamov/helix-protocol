@@ -245,6 +245,8 @@ class HelixNode(GossipNode):
                 result = nested_miner.find_nested_seed(block, max_depth=depth)
                 if result:
                     chain, found_depth = result
+                    if not nested_miner.verify_nested_seed(chain, block):
+                        continue
                     candidate = chain[0]
                     if (
                         best_seed is None
