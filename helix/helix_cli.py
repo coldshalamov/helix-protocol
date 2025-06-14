@@ -31,7 +31,7 @@ def cmd_generate_keys(args: argparse.Namespace) -> None:
 
 
 def cmd_submit_statement(args: argparse.Namespace) -> None:
-    event = event_manager.create_event(args.text)
+    event = event_manager.create_event(args.text, normalize=args.normalize)
     for idx, block in enumerate(event["microblocks"]):
         seed = minihelix.mine_seed(block)
         if seed is None or not minihelix.verify_seed(seed, block):
@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
     p_submit.add_argument("--text", required=True, help="Statement text")
+    p_submit.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Normalize statement before hashing",
+    )
     p_submit.set_defaults(func=cmd_submit_statement)
 
     p_gen = sub.add_parser("generate-keys", help="Generate a keypair")
