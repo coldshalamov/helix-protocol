@@ -1,10 +1,12 @@
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 from .helix_node import HelixNode
 from .gossip import LocalGossipNetwork
 from . import signature_utils
+from .config import GENESIS_HASH
 import threading
 import time
 from . import event_manager
@@ -13,6 +15,21 @@ from . import nested_miner
 from . import minihelix
 from . import betting_interface
 from .ledger import load_balances, compression_stats
+
+
+def _default_genesis_file() -> str:
+    """Return the path to ``helix/genesis.json`` ensuring it matches ``GENESIS_HASH``."""
+    path = Path(__file__).resolve().parent / "genesis.json"
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        print(f"Genesis file missing: {path}")
+        raise SystemExit(1)
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != GENESIS_HASH:
+        print("Genesis file hash mismatch")
+        raise SystemExit(1)
+    return str(path)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -41,7 +58,11 @@ def _load_event(path: Path) -> dict:
 def cmd_start_node(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
     balances_file = Path(args.data_dir) / "balances.json"
-    node = HelixNode(events_dir=str(events_dir), balances_file=str(balances_file))
+    node = HelixNode(
+        events_dir=str(events_dir),
+        balances_file=str(balances_file),
+        genesis_file=_default_genesis_file(),
+    )
     print(f"Starting node on port {args.port} with data dir {args.data_dir}")
     node.run()
 
@@ -159,6 +180,7 @@ def cmd_helix_node(args: argparse.Namespace) -> None:
         balances_file=str(balances_file),
         node_id=pub[:8],
         network=network,
+        genesis_file=_default_genesis_file(),
     )
 
     threading.Thread(target=node._message_loop, daemon=True).start()
