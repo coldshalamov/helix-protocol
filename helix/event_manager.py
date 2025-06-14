@@ -15,7 +15,10 @@ import hashlib
 import math
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from .statement_registry import StatementRegistry
 
 from .signature_utils import load_keys, sign_data
 
@@ -67,6 +70,7 @@ def create_event(
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
     *,
     keyfile: str | None = None,
+    registry: "StatementRegistry" | None = None,
 ) -> Dict[str, Any]:
     """Create an event dictionary for ``statement`` and optionally sign it."""
 
@@ -74,6 +78,8 @@ def create_event(
         statement, microblock_size
     )
     statement_id = sha256(statement.encode("utf-8"))
+    if registry is not None:
+        registry.check_and_add(statement)
 
     header = {
         "statement_id": statement_id,
