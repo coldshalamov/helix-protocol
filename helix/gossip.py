@@ -128,6 +128,8 @@ class GossipNode:
             if self._is_new(msg):
                 self._mark_seen(msg)
                 self._handle_presence(msg)
+                msg_type = msg.get("type")
+                print(f"{self.node_id} received message {msg_type}")
                 return msg
 
 

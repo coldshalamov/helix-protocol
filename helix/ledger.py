@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Any
 
 from . import event_manager
 
@@ -54,4 +54,36 @@ def compression_stats(events_dir: str) -> Tuple[int, float]:
     return saved, hlx
 
 
-__all__ = ["load_balances", "save_balances", "compression_stats"]
+def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> None:
+    """Apply mining rewards and refunds from ``event`` to ``balances``.
+
+    ``event`` should contain ``miners`` listing the miner for each microblock.
+    If ``refund_miners`` is present, refund amounts are credited to the miner
+    that was replaced for that microblock.
+    """
+
+    miners = event.get("miners")
+    if not miners:
+        return
+
+    rewards = event.get("rewards", [])
+    refunds = event.get("refunds", [])
+    refund_miners = event.get("refund_miners", [None] * len(miners))
+
+    for idx, miner in enumerate(miners):
+        if miner:
+            reward = rewards[idx] if idx < len(rewards) else 0.0
+            balances[miner] = balances.get(miner, 0.0) + reward
+
+        old_miner = refund_miners[idx]
+        if old_miner:
+            refund = refunds[idx] if idx < len(refunds) else 0.0
+            balances[old_miner] = balances.get(old_miner, 0.0) + refund
+
+
+__all__ = [
+    "load_balances",
+    "save_balances",
+    "compression_stats",
+    "apply_mining_results",
+]

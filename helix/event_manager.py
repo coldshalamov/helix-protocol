@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import math
 import json
@@ -29,16 +31,8 @@ def reward_for_depth(depth: int) -> float:
 
 
 def calculate_reward(base: float, depth: int) -> float:
-    """Return the reward for ``depth`` using ``base`` tokens.
-
-    Reward scales inversely with the depth of the mined seed.  A depth-1
-    seed receives the full ``base`` amount, depth-2 receives half, and so
-    on.  The result is rounded to four decimal places.
-    """
-
     if depth < 1:
         raise ValueError("depth must be >= 1")
-
     reward = base / depth
     return round(reward, 4)
 
@@ -104,9 +98,7 @@ def create_event(
     if private_key is not None:
         key_bytes = base64.b64decode(private_key)
         signing_key = signing.SigningKey(key_bytes)
-        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode(
-            "ascii"
-        )
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
         originator_sig = sign_data(statement.encode("utf-8"), private_key)
 
     event = {
@@ -137,17 +129,9 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: list[bytes]) -> float:
-    """Accept ``seed_chain`` for microblock ``index`` of ``event``.
-
-    ``seed_chain`` contains the starting seed followed by any intermediate
-    values.  Its length represents the depth of the nested mining.  The chain
-    is verified with :func:`verify_nested_seed` before it is applied.
-    """
-
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
     seed = seed_chain[0]
     depth = len(seed_chain)
-
     block = event["microblocks"][index]
     assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
 
@@ -164,6 +148,10 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: list[bytes]
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
+        if "miners" in event:
+            event["miners"][index] = miner
+        if "refund_miners" in event:
+            event["refund_miners"][index] = None
         mark_mined(event, index)
         return 0.0
 
@@ -182,10 +170,15 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: list[bytes]
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
+        if "miners" in event:
+            old_miner = event["miners"][index]
+            event["miners"][index] = miner
+        else:
+            old_miner = None
+        if "refund_miners" in event:
+            event["refund_miners"][index] = old_miner
         event["refunds"][index] += refund
-        print(
-            f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
-        )
+        print(f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}")
 
     return refund
 
@@ -204,7 +197,6 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
 
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
-    """Verify the originator signature attached to ``event``."""
     header = event.get("header", {})
     signature = header.get("originator_sig")
     pubkey = header.get("originator_pub")
@@ -222,7 +214,6 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
 
 
 def verify_event_signature(event: Dict[str, Any]) -> bool:
-    """Verify the signature for ``event`` recorded at the root level."""
     signature = event.get("originator_sig")
     pubkey = event.get("originator_pub")
     statement = event.get("statement")
