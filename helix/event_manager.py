@@ -112,6 +112,10 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
     reward = reward_for_depth(depth)
     refund = 0.0
 
+    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    if len(seed) > microblock_size:
+        raise ValueError("seed length exceeds microblock size")
+
     if event["seeds"][index] is None:
         event["seeds"][index] = seed
         event["seed_depths"][index] = depth
