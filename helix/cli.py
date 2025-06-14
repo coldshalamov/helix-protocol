@@ -3,6 +3,10 @@ import json
 from pathlib import Path
 
 from .helix_node import HelixNode
+from .gossip import LocalGossipNetwork
+from . import signature_utils
+import threading
+import time
 from . import event_manager
 from . import nested_miner
 from . import minihelix
@@ -135,6 +139,42 @@ def cmd_view_wallet(args: argparse.Namespace) -> None:
     print(json.dumps(balances, indent=2))
 
 
+def cmd_helix_node(args: argparse.Namespace) -> None:
+    """Run an automated Helix node that mines and syncs."""
+    data_dir = Path(args.data_dir)
+    events_dir = data_dir / "events"
+    balances_file = data_dir / "balances.json"
+    wallet_file = data_dir / "wallet.txt"
+
+    pub, _ = signature_utils.load_or_create_keys(str(wallet_file))
+    print(f"Using wallet {wallet_file} (pubkey {pub})")
+
+    network = LocalGossipNetwork()
+    node = HelixNode(
+        events_dir=str(events_dir),
+        balances_file=str(balances_file),
+        node_id=pub[:8],
+        network=network,
+    )
+
+    threading.Thread(target=node._message_loop, daemon=True).start()
+
+    def miner_loop() -> None:
+        while True:
+            for event in list(node.events.values()):
+                if not event.get("is_closed"):
+                    node.mine_event(event)
+            time.sleep(0.1)
+
+    threading.Thread(target=miner_loop, daemon=True).start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+
 def cmd_reassemble(args: argparse.Namespace) -> None:
     """Load an event and print its reconstructed statement."""
     events_dir = Path(args.data_dir) / "events"
@@ -164,6 +204,9 @@ def main(argv: list[str] | None = None) -> None:
 
     p_start = sub.add_parser("start-node", help="Start a Helix node")
     p_start.set_defaults(func=cmd_start_node)
+
+    p_autonode = sub.add_parser("helix-node", help="Run automated mining node")
+    p_autonode.set_defaults(func=cmd_helix_node)
 
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
     p_submit.add_argument("statement", help="Text of the statement")
