@@ -58,6 +58,15 @@ Unlike legacy blockchains that mint tokens by wasting computation, Helix mints 1
 - General Decentralized Oracle for Web3 Applications
 ---
 
+
+## 🛠 Installation
+
+Install Python dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## 🤝 Get Involved
 
 We're seeking contributors in:
