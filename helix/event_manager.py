@@ -15,6 +15,8 @@ import hashlib
 import math
 from typing import Any, Dict, List, Tuple
 
+from .signature_utils import load_keys, sign_data
+
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 
@@ -59,9 +61,12 @@ def reassemble_microblocks(blocks: List[bytes]) -> str:
 
 
 def create_event(
-    statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
+    statement: str,
+    microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
+    *,
+    keyfile: str | None = None,
 ) -> Dict[str, Any]:
-    """Create an event dictionary for ``statement``."""
+    """Create an event dictionary for ``statement`` and optionally sign it."""
 
     microblocks, block_count, total_len = split_into_microblocks(
         statement, microblock_size
@@ -74,6 +79,12 @@ def create_event(
         "microblock_size": microblock_size,
         "block_count": block_count,
     }
+
+    if keyfile is not None:
+        pub, priv = load_keys(keyfile)
+        signature = sign_data(repr(header).encode("utf-8"), priv)
+        header["originator_sig"] = signature
+        header["originator_pub"] = pub
 
     event = {
         "header": header,
