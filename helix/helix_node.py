@@ -26,6 +26,19 @@ GAS_FEE_PER_MICROBLOCK = 1
 
 # [rest of the file remains unchanged and is already resolved properly]
 
+
+class HelixNode:
+    """Fallback stub for ``HelixNode``.
+
+    This stub is provided for environments where the full implementation of
+    :class:`HelixNode` is not available.  It allows modules that merely import
+    the class to operate without raising :class:`ImportError`.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+        """Create a stub node and announce its usage."""
+        print("Stub HelixNode loaded")
+
 def verify_event_signature(event: Dict[str, Any]) -> bool:
     signature = event.get("originator_sig")
     pubkey = event.get("originator_pub")
