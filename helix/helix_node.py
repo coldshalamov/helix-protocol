@@ -6,8 +6,11 @@ import os
 import queue
 import random
 import threading
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, Generator
+
+GENESIS_HASH = "8b846bb24fd5f59dc0b8f968816521aae61c3dfe63e57fe3c8631c58d924a77d"
 
 try:
     from . import event_manager
@@ -47,6 +50,7 @@ class HelixNode(GossipNode):
         node_id: str | None = None,
         network: LocalGossipNetwork | None = None,
         peers_file: str = "peers.json",
+        genesis_file: str = "genesis.json",
     ) -> None:
         if network is None:
             network = LocalGossipNetwork()
@@ -58,12 +62,28 @@ class HelixNode(GossipNode):
         self.events_dir = events_dir
         self.balances_file = balances_file
         self.peers_file = peers_file
+        self.genesis_file = genesis_file
         self.balance_lock = threading.Lock()
         self.balances = load_balances(self.balances_file)
+        self.genesis = self._load_genesis()
         self.events: Dict[str, Dict[str, Any]] = {}
         self.known_peers: set[str] = set()
         self.load_state()
         self.update_known_peers()
+
+    def _load_genesis(self) -> Dict[str, Any]:
+        """Load and verify the genesis file."""
+        if not os.path.exists(self.genesis_file):
+            raise FileNotFoundError(self.genesis_file)
+        with open(self.genesis_file, "rb") as fh:
+            data = fh.read()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != GENESIS_HASH:
+            raise ValueError("Genesis hash mismatch")
+        try:
+            return json.loads(data.decode("utf-8"))
+        except Exception:  # pragma: no cover - corrupted file
+            return {}
 
     def update_known_peers(self) -> None:
         try:
@@ -89,6 +109,9 @@ class HelixNode(GossipNode):
                 path = os.path.join(self.events_dir, fname)
                 try:
                     event = event_manager.load_event(path)
+                    parent_id = event.get("header", {}).get("parent_id")
+                    if parent_id != GENESIS_HASH:
+                        raise ValueError("invalid parent_id")
                     evt_id = event["header"]["statement_id"]
                     self.events[evt_id] = event
                 except Exception as exc:
@@ -99,3 +122,24 @@ class HelixNode(GossipNode):
                 threading.Thread(target=self.mine_event, args=(evt,)).start()
 
     def save_state(self) -> None:
+        """Persist peers, balances and events to disk."""
+        with open(self.peers_file, "w", encoding="utf-8") as fh:
+            json.dump(sorted(self.known_peers), fh, indent=2)
+        save_balances(self.balances, self.balances_file)
+        for event in self.events.values():
+            event_manager.save_event(event, self.events_dir)
+
+    def create_event(self, statement: str, *, keyfile: str | None = None) -> Dict[str, Any]:
+        """Create a new event referencing the genesis block."""
+        event = event_manager.create_event(statement, self.microblock_size, keyfile=keyfile)
+        event["header"]["parent_id"] = GENESIS_HASH
+        return event
+
+    def import_event(self, event: Dict[str, Any]) -> None:
+        """Add ``event`` to the local store after validation."""
+        parent = event.get("header", {}).get("parent_id")
+        if parent != GENESIS_HASH:
+            raise ValueError("invalid parent_id")
+        evt_id = event["header"]["statement_id"]
+        self.events[evt_id] = event
+        event_manager.save_event(event, self.events_dir)
