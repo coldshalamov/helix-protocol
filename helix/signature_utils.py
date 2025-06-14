@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from typing import Tuple
+from pathlib import Path
 
 from nacl import signing
 
@@ -55,12 +56,23 @@ def load_keys(filename: str) -> Tuple[str, str]:
     return pub, priv
 
 
+def load_or_create_keys(filename: str) -> Tuple[str, str]:
+    """Return keys from ``filename`` or generate and save new ones."""
+    path = Path(filename)
+    if path.exists():
+        return load_keys(filename)
+    pub, priv = generate_keypair()
+    save_keys(filename, pub, priv)
+    return pub, priv
+
+
 __all__ = [
     "generate_keypair",
     "sign_data",
     "verify_signature",
     "save_keys",
     "load_keys",
+    "load_or_create_keys",
 ]
 
 
