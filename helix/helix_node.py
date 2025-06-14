@@ -9,6 +9,12 @@ import threading
 import hashlib
 from pathlib import Path
 from typing import Any, Dict, Generator
+import time
+
+
+def simulate_mining(index: int) -> None:
+    """Sleep briefly to simulate mining work."""
+    time.sleep(0.01)
 
 GENESIS_HASH = "8b846bb24fd5f59dc0b8f968816521aae61c3dfe63e57fe3c8631c58d924a77d"
 
@@ -141,3 +147,102 @@ class HelixNode(GossipNode):
         evt_id = event["header"]["statement_id"]
         self.events[evt_id] = event
         event_manager.save_event(event, self.events_dir)
+
+    # ------------------------------------------------------------------
+    # mining and gossip -------------------------------------------------
+    def mine_event(self, event: Dict[str, Any]) -> None:
+        """Mine microblocks for ``event`` and broadcast results."""
+        for idx, block in enumerate(event["microblocks"]):
+            if event["mined_status"][idx]:
+                continue
+            simulate_mining(idx)
+            seed = find_seed(block)
+            if seed is None or not verify_seed(seed, block):
+                continue
+            event["seeds"][idx] = seed
+            event_manager.mark_mined(event, idx)
+            self.save_state()
+            msg = {
+                "type": GossipMessageType.MINED_MICROBLOCK,
+                "event_id": event["header"]["statement_id"],
+                "index": idx,
+                "seed": seed.hex(),
+            }
+            self.send_message(msg)
+
+    def finalize_event(self, event: Dict[str, Any]) -> None:
+        """Finalize ``event`` and distribute balances."""
+        if not event.get("is_closed"):
+            return
+        yes_total = sum(b["amount"] for b in event["bets"]["YES"])
+        no_total = sum(b["amount"] for b in event["bets"]["NO"])
+        if yes_total == 0 and no_total == 0:
+            return
+        outcome = "YES" if yes_total >= no_total else "NO"
+        winners = event["bets"][outcome]
+        total = yes_total + no_total
+        for bet in winners:
+            share = bet["amount"] / total
+            with self.balance_lock:
+                self.balances[bet["pubkey"]] = self.balances.get(bet["pubkey"], 0) + share * total
+        self.save_state()
+        self.send_message({
+            "type": GossipMessageType.EVENT_FINALIZED,
+            "event_id": event["header"]["statement_id"],
+        })
+
+    # ------------------------------------------------------------------
+    # networking --------------------------------------------------------
+    def _message_loop(self) -> None:
+        """Process incoming gossip messages."""
+        while True:
+            try:
+                msg = self.receive(timeout=0.1)
+            except queue.Empty:
+                continue
+            msg_type = msg.get("type")
+            if msg_type == GossipMessageType.NEW_STATEMENT:
+                event = msg.get("event")
+                if not event:
+                    continue
+                evt_id = event.get("header", {}).get("statement_id")
+                if evt_id in self.events:
+                    continue
+                if not verify_originator_signature(event):
+                    self.logger.warning("Invalid signature for %s", evt_id)
+                    continue
+                self.events[evt_id] = event
+                self.save_state()
+                self.forward_message(msg)
+                threading.Thread(target=self.mine_event, args=(event,)).start()
+            elif msg_type == GossipMessageType.MINED_MICROBLOCK:
+                evt_id = msg.get("event_id")
+                idx = msg.get("index")
+                seed_hex = msg.get("seed")
+                if evt_id not in self.events or idx is None or seed_hex is None:
+                    continue
+                event = self.events[evt_id]
+                seed = bytes.fromhex(seed_hex)
+                block = event["microblocks"][idx]
+                if not verify_seed(seed, block):
+                    continue
+                if event["mined_status"][idx]:
+                    continue
+                event["seeds"][idx] = seed
+                event_manager.mark_mined(event, idx)
+                self.save_state()
+                self.forward_message(msg)
+            elif msg_type == GossipMessageType.EVENT_FINALIZED:
+                evt_id = msg.get("event_id")
+                if evt_id not in self.events:
+                    continue
+                self.forward_message(msg)
+
+
+__all__ = [
+    "HelixNode",
+    "GossipMessageType",
+    "simulate_mining",
+    "find_seed",
+    "verify_seed",
+]

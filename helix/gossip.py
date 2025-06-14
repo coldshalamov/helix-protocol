@@ -33,11 +33,47 @@ class GossipNode:
         self.node_id = node_id
         self.network = network
         self._queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        self._seen: set[str] = set()
         self.network.register(self)
+
+    # ------------------------------------------------------------------
+    # messaging helpers
+    def _message_id(self, message: Dict[str, Any]) -> str | None:
+        msg_type = message.get("type")
+        if msg_type is None:
+            return None
+        if "event" in message:
+            event_id = (
+                message["event"].get("header", {}).get("statement_id")
+            )
+        else:
+            event_id = message.get("event_id")
+        if event_id is None:
+            return None
+        idx = message.get("index")
+        if idx is not None:
+            return f"{msg_type}:{event_id}:{idx}"
+        return f"{msg_type}:{event_id}"
+
+    def _mark_seen(self, message: Dict[str, Any]) -> None:
+        msg_id = self._message_id(message)
+        if msg_id is not None:
+            self._seen.add(msg_id)
+
+    def _is_new(self, message: Dict[str, Any]) -> bool:
+        msg_id = self._message_id(message)
+        return msg_id is None or msg_id not in self._seen
 
     def send_message(self, message: Dict[str, Any]) -> None:
         """Send ``message`` to all peers on the network."""
+        self._mark_seen(message)
         self.network.send(self.node_id, message)
+
+    def forward_message(self, message: Dict[str, Any]) -> None:
+        """Re-broadcast ``message`` if it hasn't been seen before."""
+        if self._is_new(message):
+            self._mark_seen(message)
+            self.network.send(self.node_id, message)
 
     def receive(self, timeout: float | None = None) -> Dict[str, Any]:
         """Return the next message for this node."""
