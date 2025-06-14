@@ -8,7 +8,7 @@ from . import miner
 from . import signature_utils
 from . import betting_interface
 from .ledger import load_balances
-from .helix_node import GossipNode, LocalGossipNetwork
+from .gossip import GossipNode, LocalGossipNetwork
 
 EVENTS_DIR = Path("events")
 BALANCES_FILE = Path("balances.json")
