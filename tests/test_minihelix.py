@@ -1,6 +1,7 @@
 import hashlib
 
 from helix import minihelix as mh
+from helix import nested_miner
 
 
 def test_G_deterministic():
@@ -22,4 +23,31 @@ def test_verify_seed_false():
     seed = b"\x02"
     block = mh.G(seed, N=1)
     assert not mh.verify_seed(b"\x03", block)
+
+
+def test_find_nested_seed_simple(monkeypatch):
+    N = 8
+    base_seed = b"abc"
+    inter1 = mh.G(base_seed, N)
+    inter2 = mh.G(inter1, N)
+    block = mh.G(inter2, N)
+
+    def fake_randint(a, b):
+        return len(base_seed)
+
+    def fake_urandom(n):
+        assert n == len(base_seed)
+        return base_seed
+
+    monkeypatch.setattr(nested_miner.random, "randint", fake_randint)
+    monkeypatch.setattr(nested_miner.os, "urandom", fake_urandom)
+
+    result = nested_miner.find_nested_seed(block, max_depth=3, attempts=1)
+    assert result is not None, "find_nested_seed did not return a result"
+    chain, depth = result
+    print("Returned chain", chain, "depth", depth)
+    assert depth == 3, f"expected depth 3, got {depth}"
+    assert chain == [base_seed, inter1, inter2], "incorrect seed chain"
+    assert nested_miner.verify_nested_seed(chain, block), "seed chain failed verification"
+    print("Nested seed search SUCCESS")
 
