@@ -1,4 +1,8 @@
 """Configuration constants for the Helix protocol."""
 
-GENESIS_HASH = "f2a521ab40a1211a0a034aac27a55186ccf6163c715d7deafb55790f0e37b8c3"
+# Statement id of the genesis event shipped with the repository.  The
+# corresponding file lives at ``helix/genesis.json``.  ``cli`` and the tests
+# verify that this constant matches the SHA-256 digest of that file so that
+# nodes agree on the parent hash of the very first event.
+GENESIS_HASH = "4e17811011ec217ac84a9e037a82758a7de318342886a88a37ebabf90f52af73"
 
