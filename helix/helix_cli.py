@@ -86,6 +86,24 @@ def cmd_place_bet(args: argparse.Namespace) -> None:
     print("Bet recorded")
 
 
+def cmd_list_events(args: argparse.Namespace) -> None:
+    """Print a summary of all events in ``args.data_dir``."""
+    events_dir = Path(args.data_dir) / "events"
+    if not events_dir.exists():
+        raise SystemExit("Events directory not found")
+
+    for path in sorted(events_dir.glob("*.json")):
+        event = event_manager.load_event(str(path))
+        header = event.get("header", {})
+        statement_id = header.get("statement_id", path.stem)
+        mined = sum(1 for m in event.get("mined_status", []) if m)
+        total = header.get("block_count", len(event.get("microblocks", [])))
+        line = f"{statement_id} closed={event.get('is_closed', False)} {mined}/{total}"
+        if args.show_statement:
+            line += f" {event.get('statement', '')}"
+        print(line)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -123,6 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_bet.add_argument("--choice", required=True, choices=["YES", "NO"], help="Bet choice")
     p_bet.add_argument("--amount", required=True, type=int, help="Bet amount")
     p_bet.set_defaults(func=cmd_place_bet)
+
+    p_list = sub.add_parser("list-events", help="List events in data directory")
+    p_list.add_argument("--data-dir", default="data", help="Directory containing events")
+    p_list.add_argument("--show-statement", action="store_true", help="Include raw statement text")
+    p_list.set_defaults(func=cmd_list_events)
 
     return parser
 
