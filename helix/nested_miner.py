@@ -51,4 +51,32 @@ def verify_nested_seed(seed_chain: list[bytes], target_block: bytes) -> bool:
     return current == target_block
 
 
-__all__ = ["find_nested_seed", "verify_nested_seed"]
+def hybrid_mine(target_block: bytes, max_depth: int = 4) -> tuple[bytes, int] | None:
+    """Return a seed and depth that regenerate ``target_block`` using nested ``G``.
+
+    The search iterates over seeds in increasing length starting at one byte.
+    For each seed ``s`` it computes ``G(s)``, ``G(G(s))`` and so on up to
+    ``max_depth`` times.  If any of these intermediate values equals
+    ``target_block`` the seed and the matching depth are returned.  The search
+    stops after ten million seeds have been tried without success.
+    """
+
+    N = len(target_block)
+    attempt = 0
+    for length in range(1, N + 1):
+        max_value = 256 ** length
+        for i in range(max_value):
+            if attempt >= 10_000_000:
+                return None
+            seed = i.to_bytes(length, "big")
+            current = seed
+            for depth in range(1, max_depth + 1):
+                current = G(current, N)
+                if current == target_block:
+                    print(f"Found seed {seed.hex()} at depth {depth}")
+                    return seed, depth
+            attempt += 1
+    return None
+
+
+__all__ = ["find_nested_seed", "verify_nested_seed", "hybrid_mine"]
