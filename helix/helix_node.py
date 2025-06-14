@@ -146,6 +146,16 @@ def verify_seed(seed: bytes, target: bytes) -> bool:
     return minihelix.verify_seed(seed, target)
 
 
+def verify_statement_id(event: Dict[str, Any]) -> bool:
+    """Return ``True`` if the statement_id matches the statement hash."""
+    statement = event.get("statement")
+    stmt_id = event.get("header", {}).get("statement_id")
+    if not isinstance(statement, str) or not stmt_id:
+        return False
+    digest = hashlib.sha256(statement.encode("utf-8")).hexdigest()
+    return digest == stmt_id
+
+
 class HelixNode(GossipNode):
     """Minimal Helix node used for tests."""
 
@@ -248,13 +258,7 @@ class HelixNode(GossipNode):
                 event["seeds"][idx] = {"seed": best_seed, "depth": best_depth}
                 event_manager.mark_mined(event, idx)
                 if event.get("is_closed"):
-                    self.send_message(
-                        {
-                            "type": GossipMessageType.FINALIZED,
-                            "event_id": evt_id,
-                            "result": True,
-                        }
-                    )
+                    self.finalize_event(event)
                     break
 
     def finalize_event(self, event: dict) -> None:
@@ -267,8 +271,7 @@ class HelixNode(GossipNode):
         self.send_message(
             {
                 "type": GossipMessageType.FINALIZED,
-                "event_id": event["header"]["statement_id"],
-                "result": True,
+                "event": event,
                 "balances": self.balances,
             }
         )
@@ -284,16 +287,35 @@ class HelixNode(GossipNode):
                 except ValueError:
                     pass
         elif msg_type == GossipMessageType.FINALIZED:
-            event_id = message.get("event_id")
-            result = message.get("result")
-            if event_id and event_id in self.events:
-                self.events[event_id]["is_closed"] = True
-                if result is not None:
-                    self.events[event_id]["result"] = result
+            event = message.get("event")
+            if not isinstance(event, dict):
+                return
+            if not verify_statement_id(event):
+                return
+            try:
+                event_manager.validate_parent(event)
+            except ValueError:
+                return
+            evt_id = event.get("header", {}).get("statement_id")
+            if not evt_id:
+                return
+            if evt_id not in self.events:
+                self.import_event(event)
+            else:
+                self.events[evt_id].update(event)
+            self.events[evt_id]["is_closed"] = True
+
             balances = message.get("balances")
             if isinstance(balances, dict):
-                self.balances = balances
-                save_balances(self.balances, self.balances_file)
+                for k, v in balances.items():
+                    self.balances[k] = v
+            else:
+                for bet in event.get("bets", {}).get("YES", []):
+                    pub = bet.get("pubkey")
+                    amt = bet.get("amount", 0)
+                    if pub:
+                        self.balances[pub] = self.balances.get(pub, 0) + amt
+            self.save_state()
 
     def _message_loop(self) -> None:
         while True:
@@ -312,4 +334,5 @@ __all__ = [
     "simulate_mining",
     "find_seed",
     "verify_seed",
+    "verify_statement_id",
 ]
