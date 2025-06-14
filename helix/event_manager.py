@@ -15,6 +15,8 @@ from .config import GENESIS_HASH
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 BASE_REWARD = 1.0
+# Base gas cost applied per microblock when a statement is submitted
+GAS_FEE_PER_MICROBLOCK = 1
 
 
 def nesting_penalty(depth: int) -> int:
@@ -96,6 +98,7 @@ def create_event(
         "microblock_size": microblock_size,
         "block_count": block_count,
         "parent_id": parent_id,
+        "gas_fee": block_count * GAS_FEE_PER_MICROBLOCK,
     }
 
     originator_pub: Optional[str] = None
@@ -250,6 +253,7 @@ def load_event(path: str) -> Dict[str, Any]:
 __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",
     "FINAL_BLOCK_PADDING_BYTE",
+    "GAS_FEE_PER_MICROBLOCK",
     "split_into_microblocks",
     "reassemble_microblocks",
     "create_event",
