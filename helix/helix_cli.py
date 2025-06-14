@@ -8,6 +8,7 @@ from . import miner
 from . import signature_utils
 from . import betting_interface
 from .ledger import load_balances
+from .helix_node import GossipNode, LocalGossipNetwork
 
 EVENTS_DIR = Path("events")
 BALANCES_FILE = Path("balances.json")
@@ -32,17 +33,19 @@ def cmd_generate_keys(args: argparse.Namespace) -> None:
 
 
 def cmd_submit_statement(args: argparse.Namespace) -> None:
-    event = event_manager.create_event(args.text, normalize=args.normalize)
-    for idx, block in enumerate(event["microblocks"]):
-        seed = minihelix.mine_seed(block)
-        if seed is None or not minihelix.verify_seed(seed, block):
-            print(f"Failed to mine microblock {idx}")
-            continue
-        event["seeds"][idx] = seed
-        event_manager.mark_mined(event, idx)
-    path = event_manager.save_event(event, str(EVENTS_DIR))
+    event = event_manager.create_event(
+        args.statement,
+        microblock_size=args.microblock_size,
+        keyfile=args.keyfile,
+        normalize=args.normalize,
+    )
+
+    network = LocalGossipNetwork()
+    node = GossipNode("CLI", network)
+    node.send_message({"type": "NEW_STATEMENT", "event": event})
+
     print(f"Statement ID: {event['header']['statement_id']}")
-    print(f"Saved to {path}")
+    print("Event submitted via gossip")
 
 
 def cmd_mine_statement(args: argparse.Namespace) -> None:
@@ -89,7 +92,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
-    p_submit.add_argument("--text", required=True, help="Statement text")
+    p_submit.add_argument("statement", help="Statement text")
+    p_submit.add_argument(
+        "--keyfile",
+        required=True,
+        help="File containing originator keys",
+    )
+    p_submit.add_argument(
+        "--microblock-size",
+        type=int,
+        default=4,
+        help="Microblock size in bytes",
+    )
     p_submit.add_argument(
         "--normalize",
         action="store_true",
