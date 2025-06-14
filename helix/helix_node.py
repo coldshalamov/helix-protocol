@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import Any, Dict
 
 
@@ -37,7 +38,8 @@ class GossipNode:
         self.network = network
         self._queue: queue.Queue[Dict[str, Any]] = queue.Queue()
         self.known_peers: set[str] = set()
-        self._seen: set[str] = set()
+        self._seen: dict[str, float] = {}
+        self._seen_ttl = 300.0  # seconds
         self.network.register(self)
 
     # ------------------------------------------------------------------
@@ -56,19 +58,32 @@ class GossipNode:
         idx = message.get("index")
         return f"{msg_type}:{event_id}:{idx}" if idx is not None else f"{msg_type}:{event_id}"
 
+    def _purge_seen(self) -> None:
+        if not self._seen:
+            return
+        now = time.monotonic()
+        expired = [m for m, t in self._seen.items() if now - t > self._seen_ttl]
+        for m in expired:
+            self._seen.pop(m, None)
+
     def _mark_seen(self, message: Dict[str, Any]) -> None:
         msg_id = self._message_id(message)
         if msg_id is not None:
-            self._seen.add(msg_id)
+            self._purge_seen()
+            self._seen[msg_id] = time.monotonic()
 
     def _is_new(self, message: Dict[str, Any]) -> bool:
         msg_id = self._message_id(message)
-        return msg_id is None or msg_id not in self._seen
+        if msg_id is None:
+            return True
+        self._purge_seen()
+        return msg_id not in self._seen
 
     def send_message(self, message: Dict[str, Any]) -> None:
-        """Send ``message`` to all peers on the network."""
-        self._mark_seen(message)
-        self.network.send(self.node_id, message)
+        """Send ``message`` to all peers on the network if new."""
+        if self._is_new(message):
+            self._mark_seen(message)
+            self.network.send(self.node_id, message)
 
     def forward_message(self, message: Dict[str, Any]) -> None:
         """Re-broadcast ``message`` if it hasn't been seen before."""
@@ -96,9 +111,16 @@ class GossipNode:
 
     def receive(self, timeout: float | None = None) -> Dict[str, Any]:
         """Return the next message for this node and handle presence messages."""
-        msg = self._queue.get(timeout=timeout)
-        self._handle_presence(msg)
-        return msg
+        end = None if timeout is None else time.monotonic() + timeout
+        while True:
+            remaining = None if end is None else max(0, end - time.monotonic())
+            if end is not None and remaining == 0:
+                raise queue.Empty
+            msg = self._queue.get(timeout=remaining)
+            if self._is_new(msg):
+                self._mark_seen(msg)
+                self._handle_presence(msg)
+                return msg
 
 
 __all__ = ["LocalGossipNetwork", "GossipNode"]
