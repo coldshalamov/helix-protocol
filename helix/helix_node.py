@@ -212,7 +212,10 @@ class HelixNode(GossipNode):
         self.events[evt_id] = event
 
     def mine_event(self, event: dict) -> None:
+        evt_id = event["header"]["statement_id"]
         for idx, block in enumerate(event["microblocks"]):
+            if event.get("is_closed"):
+                break
             if event["seeds"][idx]:
                 continue
             simulate_mining(idx)
@@ -220,6 +223,15 @@ class HelixNode(GossipNode):
             if seed and verify_seed(seed, block):
                 event["seeds"][idx] = seed
                 event_manager.mark_mined(event, idx)
+                if event.get("is_closed"):
+                    self.send_message(
+                        {
+                            "type": GossipMessageType.FINALIZED,
+                            "event_id": evt_id,
+                            "result": True,
+                        }
+                    )
+                    break
 
     def finalize_event(self, event: dict) -> None:
         for bet in event.get("bets", {}).get("YES", []):
@@ -228,7 +240,14 @@ class HelixNode(GossipNode):
             if pub:
                 self.balances[pub] = self.balances.get(pub, 0) + amt
         self.save_state()
-        self.send_message({"type": GossipMessageType.FINALIZED, "balances": self.balances})
+        self.send_message(
+            {
+                "type": GossipMessageType.FINALIZED,
+                "event_id": event["header"]["statement_id"],
+                "result": True,
+                "balances": self.balances,
+            }
+        )
 
     def _handle_message(self, message: Dict[str, Any]) -> None:
         msg_type = message.get("type")
@@ -241,6 +260,12 @@ class HelixNode(GossipNode):
                 except ValueError:
                     pass
         elif msg_type == GossipMessageType.FINALIZED:
+            event_id = message.get("event_id")
+            result = message.get("result")
+            if event_id and event_id in self.events:
+                self.events[event_id]["is_closed"] = True
+                if result is not None:
+                    self.events[event_id]["result"] = result
             balances = message.get("balances")
             if isinstance(balances, dict):
                 self.balances = balances
