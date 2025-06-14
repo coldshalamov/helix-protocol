@@ -74,6 +74,44 @@ def cmd_mine(args: argparse.Namespace) -> None:
     event_manager.save_event(event, str(events_dir))
 
 
+def cmd_remine_microblock(args: argparse.Namespace) -> None:
+    """Attempt to mine or replace a single microblock."""
+    events_dir = Path(args.data_dir) / "events"
+    event_path = events_dir / f"{args.event_id}.json"
+    if not event_path.exists():
+        print("Event not found")
+        return
+    event = _load_event(event_path)
+
+    if event.get("is_closed"):
+        print("Event is closed")
+        return
+
+    index = args.index
+    if index < 0 or index >= len(event["microblocks"]):
+        print("Invalid index")
+        return
+
+    if event["mined_status"][index] and not args.force:
+        print("Microblock already mined; use --force to replace")
+        return
+
+    block = event["microblocks"][index]
+    result = nested_miner.find_nested_seed(block)
+    if result is None:
+        print(f"No seed found for block {index}")
+        return
+    chain, depth = result
+    if not nested_miner.verify_nested_seed(chain, block):
+        print(f"Seed verification failed for block {index}")
+        return
+
+    seed = chain[0]
+    event_manager.accept_mined_seed(event, index, seed, depth)
+    event_manager.save_event(event, str(events_dir))
+    print(f"Remined microblock {index}")
+
+
 def cmd_place_bet(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
     event_path = events_dir / f"{args.event_id}.json"
@@ -146,6 +184,18 @@ def main(argv: list[str] | None = None) -> None:
 
     p_wallet = sub.add_parser("view-wallet", help="View wallet balances")
     p_wallet.set_defaults(func=cmd_view_wallet)
+
+    p_remine = sub.add_parser(
+        "remine-microblock", help="Retry mining a single microblock"
+    )
+    p_remine.add_argument("--event-id", required=True, help="Event identifier")
+    p_remine.add_argument("--index", type=int, required=True, help="Block index")
+    p_remine.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing seed if a shorter one is found",
+    )
+    p_remine.set_defaults(func=cmd_remine_microblock)
 
     p_status = sub.add_parser("status", help="Show node status")
     p_status.set_defaults(func=cmd_status)
