@@ -25,8 +25,8 @@ GENESIS_FILE = "genesis.json"
 
 
 def main() -> None:
-    load_or_create_keys(KEYFILE)
-    event = create_event(STATEMENT, microblock_size=MICROBLOCK_SIZE, keyfile=KEYFILE)
+    _, priv = load_or_create_keys(KEYFILE)
+    event = create_event(STATEMENT, microblock_size=MICROBLOCK_SIZE, private_key=priv)
 
     for index, block in enumerate(event["microblocks"]):
         seed = mine_seed(block)

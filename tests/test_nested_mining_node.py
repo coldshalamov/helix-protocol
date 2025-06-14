@@ -27,7 +27,7 @@ def test_nested_mining_fallback(tmp_path, monkeypatch):
         lambda target, max_depth: (chain, 2),
     )
 
-    event = node.create_event("ab", keyfile=None)
+    event = node.create_event("ab", private_key=None)
     evt_id = event["header"]["statement_id"]
     node.events[evt_id] = event
 
