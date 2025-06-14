@@ -10,8 +10,8 @@ try:
     from . import event_manager
     from .signature_utils import verify_signature
 except ImportError:  # pragma: no cover - allow running as a script
-    import event_manager
-    from signature_utils import verify_signature
+    from helix import event_manager
+    from helix.signature_utils import verify_signature
 
 # ----------------------------------------------------------------------------
 # Signature Verification
