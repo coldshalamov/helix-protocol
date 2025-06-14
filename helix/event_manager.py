@@ -2,7 +2,7 @@ import hashlib
 import math
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
@@ -58,8 +58,8 @@ def create_event(
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
     *,
     parent_id: str = GENESIS_HASH,
-    keyfile: str | None = None,
-    registry: "StatementRegistry" | None = None,
+    keyfile: Optional[str] = None,
+    registry: Optional["StatementRegistry"] = None,
 ) -> Dict[str, Any]:
     microblocks, block_count, total_len = split_into_microblocks(
         statement, microblock_size
@@ -156,7 +156,7 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     return str(filename)
 
 
-def validate_parent(event: Dict[str, Any], *, ancestors: set[str] | None = None) -> None:
+def validate_parent(event: Dict[str, Any], *, ancestors: Optional[set[str]] = None) -> None:
     if ancestors is None:
         ancestors = {GENESIS_HASH}
     parent_id = event.get("header", {}).get("parent_id")
