@@ -7,6 +7,8 @@ pytest.importorskip("nacl")
 
 from helix.helix_node import HelixNode, GossipMessageType, simulate_mining, find_seed, verify_seed
 from helix.gossip import LocalGossipNetwork
+from helix import betting_interface as bi
+from helix import signature_utils as su
 
 
 def test_two_node_flow(tmp_path, monkeypatch):
@@ -56,9 +58,13 @@ def test_two_node_flow(tmp_path, monkeypatch):
     for t in mine_threads:
         t.join()
 
-    yes_bet = {"event_id": evt_id, "choice": "YES", "amount": 5, "pubkey": "user"}
-    node_a.events[evt_id]["bets"]["YES"].append(yes_bet)
-    node_b.events[evt_id]["bets"]["YES"].append(yes_bet)
+    pub, priv = su.generate_keypair()
+    keyf = tmp_path / "kb.txt"
+    su.save_keys(str(keyf), pub, priv)
+
+    yes_bet = bi.submit_bet(evt_id, "YES", 5, str(keyf))
+    bi.record_bet(node_a.events[evt_id], yes_bet)
+    bi.record_bet(node_b.events[evt_id], yes_bet)
 
     node_a.finalize_event(event)
     time.sleep(0.1)

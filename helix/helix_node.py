@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import event_manager, minihelix, nested_miner
+from . import event_manager, minihelix, nested_miner, betting_interface
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances
 from .gossip import GossipNode, LocalGossipNetwork
@@ -182,16 +182,37 @@ class HelixNode(GossipNode):
                     self.finalize_event(event)
                     break
 
-    def finalize_event(self, event: dict) -> None:
-        yes_bets = event.get("bets", {}).get("YES", [])
-        no_bets = event.get("bets", {}).get("NO", [])
+    def finalize_event(self, event: dict, *, penalize_invalid: bool = False) -> None:
+        yes_bets_raw = event.get("bets", {}).get("YES", [])
+        no_bets_raw = event.get("bets", {}).get("NO", [])
 
-        yes_total = sum(b.get("amount", 0) for b in yes_bets)
-        no_total = sum(b.get("amount", 0) for b in no_bets)
+        valid_yes_bets = []
+        for bet in yes_bets_raw:
+            if betting_interface.verify_bet(bet):
+                valid_yes_bets.append(bet)
+            else:
+                pub = bet.get("pubkey")
+                if penalize_invalid and pub:
+                    self.balances[pub] = self.balances.get(pub, 0) - bet.get("amount", 0)
+
+        valid_no_bets = []
+        for bet in no_bets_raw:
+            if betting_interface.verify_bet(bet):
+                valid_no_bets.append(bet)
+            else:
+                pub = bet.get("pubkey")
+                if penalize_invalid and pub:
+                    self.balances[pub] = self.balances.get(pub, 0) - bet.get("amount", 0)
+
+        event["bets"]["YES"] = valid_yes_bets
+        event["bets"]["NO"] = valid_no_bets
+
+        yes_total = sum(b.get("amount", 0) for b in valid_yes_bets)
+        no_total = sum(b.get("amount", 0) for b in valid_no_bets)
 
         # Determine winning outcome based on total bet amounts
         success = yes_total > no_total
-        winners = yes_bets if success else no_bets
+        winners = valid_yes_bets if success else valid_no_bets
         winner_total = yes_total if success else no_total
 
         pot = yes_total + no_total
