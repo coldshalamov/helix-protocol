@@ -140,6 +140,7 @@ class PeerDiscovery:
 
         msg_type = message.get("type")
         sender = message.get("sender")
+        print(f"peer_discovery received {msg_type} from {sender}")
         if sender == self.node.node_id:
             return
 
@@ -151,6 +152,7 @@ class PeerDiscovery:
                 self._reconnect_peers()
             self.send_peers()
             self.save_peers()
+            print("handled HELLO -> sent peers")
         elif msg_type == PeerDiscoveryMessageType.PEERS:
             peers = message.get("peers", [])
             if isinstance(peers, list):
@@ -167,6 +169,7 @@ class PeerDiscovery:
                         )
                 self._reconnect_peers()
                 self.save_peers()
+            print("handled PEERS -> updated list")
         elif msg_type == PeerDiscoveryMessageType.PING:
             host = message.get("host")
             port = message.get("port")
@@ -182,6 +185,7 @@ class PeerDiscovery:
                     "port": self.port,
                 }
             )
+            print("handled PING -> sent PONG")
             self._reconnect_peers()
             self.save_peers()
         elif msg_type == PeerDiscoveryMessageType.PONG:
