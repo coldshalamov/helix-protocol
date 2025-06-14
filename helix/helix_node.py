@@ -110,6 +110,7 @@ class HelixNode(GossipNode):
         self.events_dir = events_dir
         self.balances_file = balances_file
         self.peers_file = peers_file
+        self.balance_lock = threading.Lock()
         self.balances = load_balances(self.balances_file)
         self.events: Dict[str, Dict[str, Any]] = {}
         self.known_peers: set[str] = set()
@@ -234,19 +235,27 @@ class HelixNode(GossipNode):
             t.join()
 
         if event["is_closed"]:
-            self.resolve_bets(event)
-            path = event_manager.save_event(event, self.events_dir)
-            self.logger.info("Saved event to %s", path)
-            statement = event_manager.reassemble_microblocks(event["microblocks"])
-            self.logger.info("Event closed. Reassembled statement: %s", statement)
-            self.send_message(
-                {
-                    "type": GossipMessageType.EVENT_FINALIZED,
-                    "event_id": event["header"]["statement_id"],
-                }
-            )
+            self.finalize_event(event)
         else:
             self.logger.warning("Event did not close properly")
+
+    def finalize_event(self, event: Dict[str, Any]) -> None:
+        """Resolve bets and broadcast the finalized event."""
+        payouts = self.resolve_bets(event)
+        path = event_manager.save_event(event, self.events_dir)
+        statement = event_manager.reassemble_microblocks(event["microblocks"])
+        self.logger.info("Saved event to %s", path)
+        self.logger.info("Event closed. Reassembled statement: %s", statement)
+        for user, amount in payouts.items():
+            self.logger.info("Payout %s -> %.2f", user, amount)
+        self.send_message(
+            {
+                "type": GossipMessageType.EVENT_FINALIZED,
+                "event_id": event["header"]["statement_id"],
+                "result": event.get("result"),
+                "balances": self.balances,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Gossip message handling
@@ -296,8 +305,19 @@ class HelixNode(GossipNode):
 
             elif mtype == GossipMessageType.EVENT_FINALIZED:
                 evt_id = message.get("event_id")
+                balances = message.get("balances")
+                result = message.get("result")
+                if balances is not None:
+                    with self.balance_lock:
+                        self.balances = balances
+                        save_balances(self.balances, self.balances_file)
                 if evt_id in self.events:
-                    print(f"Node {self.node_id}: event {evt_id} finalized")
+                    self.events[evt_id]["is_closed"] = True
+                    if result is not None:
+                        self.events[evt_id]["result"] = result
+                    print(
+                        f"Node {self.node_id}: event {evt_id} finalized as {result}"
+                    )
         except Exception as exc:  # pragma: no cover - best effort
             print(f"Error handling message: {exc}")
 
@@ -313,8 +333,11 @@ class HelixNode(GossipNode):
     # ------------------------------------------------------------------
     # Bet resolution
     # ------------------------------------------------------------------
-    def resolve_bets(self, event: Dict[str, Any]) -> None:
-        """Distribute betting pool to winners and originator."""
+    def resolve_bets(self, event: Dict[str, Any]) -> Dict[str, float]:
+        """Distribute betting pool to winners and originator.
+
+        Returns a mapping of ``pubkey`` to payout amount.
+        """
         yes_bets = event.get("bets", {}).get("YES", [])
         no_bets = event.get("bets", {}).get("NO", [])
         yes_total = sum(b.get("amount", 0) for b in yes_bets)
@@ -327,17 +350,22 @@ class HelixNode(GossipNode):
         pot = yes_total + no_total
         originator = event["header"].get("originator_pub")
         origin_cut = pot * 0.01 if originator else 0
-        if originator:
-            self.balances[originator] = self.balances.get(originator, 0) + origin_cut
-        winner_pool = pot - origin_cut
-        winners = event["bets"][winner]
-        total_winner = sum(b["amount"] for b in winners) or 1
-        for bet in winners:
-            share = bet["amount"] / total_winner
-            reward = share * winner_pool
-            key = bet["pubkey"]
-            self.balances[key] = self.balances.get(key, 0) + reward
-        save_balances(self.balances, self.balances_file)
+        payouts: Dict[str, float] = {}
+        with self.balance_lock:
+            if originator:
+                self.balances[originator] = self.balances.get(originator, 0) + origin_cut
+                payouts[originator] = payouts.get(originator, 0) + origin_cut
+            winner_pool = pot - origin_cut
+            winners = event["bets"][winner]
+            total_winner = sum(b["amount"] for b in winners) or 1
+            for bet in winners:
+                share = bet["amount"] / total_winner
+                reward = share * winner_pool
+                key = bet["pubkey"]
+                self.balances[key] = self.balances.get(key, 0) + reward
+                payouts[key] = payouts.get(key, 0) + reward
+            save_balances(self.balances, self.balances_file)
+        return payouts
 
     def run(self) -> None:
         """Main execution loop for the node."""

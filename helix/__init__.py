@@ -8,4 +8,5 @@ __all__ = [
     "signature_utils",
     "helix_node",
     "gossip",
+    "ui",
 ]
