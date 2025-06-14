@@ -8,23 +8,13 @@ from . import event_manager
 class StatementRegistry:
     """Registry of statement hashes to prevent exact duplicates."""
 
-    def __init__(self, hashes: Iterable[str] | None = None, *, normalize: bool = False) -> None:
-        """Create a new registry.
-
-        If ``normalize`` is ``True`` statements are normalized prior to hashing
-        so that near-duplicates resolve to the same identifier.
-        """
+    def __init__(self, hashes: Iterable[str] | None = None) -> None:
+        """Create a new registry."""
 
         self._hashes: Set[str] = set(hashes or [])
-        self.normalize = normalize
 
     def _hash_statement(self, statement: str) -> str:
-        text = (
-            event_manager.normalize_statement(statement)
-            if self.normalize
-            else statement
-        )
-        return event_manager.sha256(text.encode("utf-8"))
+        return event_manager.sha256(statement.encode("utf-8"))
 
     def check_and_add(self, statement: str) -> None:
         """Add ``statement`` if not already present else raise ``ValueError``."""

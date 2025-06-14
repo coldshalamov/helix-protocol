@@ -1,6 +1,4 @@
 import hashlib
-import re
-import string
 import math
 import json
 from pathlib import Path
@@ -25,13 +23,6 @@ def nesting_penalty(depth: int) -> int:
 
 def reward_for_depth(depth: int) -> float:
     return BASE_REWARD / depth
-
-
-def normalize_statement(statement: str) -> str:
-    s = statement.strip()
-    s = re.sub(r"\s+", " ", s)
-    s = s.rstrip(string.punctuation)
-    return s.lower()
 
 
 def sha256(data: bytes) -> str:
@@ -69,13 +60,11 @@ def create_event(
     parent_id: str = GENESIS_HASH,
     keyfile: str | None = None,
     registry: "StatementRegistry" | None = None,
-    normalize: bool = False,
 ) -> Dict[str, Any]:
     microblocks, block_count, total_len = split_into_microblocks(
         statement, microblock_size
     )
-    hash_input = normalize_statement(statement) if normalize else statement
-    statement_id = sha256(hash_input.encode("utf-8"))
+    statement_id = sha256(statement.encode("utf-8"))
     if registry is not None:
         registry.check_and_add(statement)
 
@@ -185,7 +174,6 @@ __all__ = [
     "FINAL_BLOCK_PADDING_BYTE",
     "split_into_microblocks",
     "reassemble_microblocks",
-    "normalize_statement",
     "create_event",
     "mark_mined",
     "nesting_penalty",
