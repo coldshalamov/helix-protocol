@@ -27,6 +27,7 @@ def _mine_microblocks(event: dict) -> None:
         print(f"Mining microblock {idx}")
 
         seed = miner.find_seed(block, attempts=FLAT_ATTEMPTS)
+        depth = 1
         if seed is not None and minihelix.verify_seed(seed, block):
             print(f"  Flat mining success: length {len(seed)}")
         else:
@@ -37,7 +38,9 @@ def _mine_microblocks(event: dict) -> None:
                 chain, depth = result
                 seed = chain[0]
                 if minihelix.verify_seed(seed, block):
-                    print(f"  Nested mining success: length {len(seed)} depth {depth}")
+                    print(
+                        f"  Nested mining success: length {len(seed)} depth {depth}"
+                    )
             if seed is None:
                 print(
                     f"  Nested mining failed for index {idx}, using brute force with {BRUTE_FORCE_ATTEMPTS} attempts..."
@@ -45,13 +48,44 @@ def _mine_microblocks(event: dict) -> None:
                 seed = mine_seed(block, max_attempts=BRUTE_FORCE_ATTEMPTS)
                 if seed is not None and minihelix.verify_seed(seed, block):
                     print(f"  Brute-force success: length {len(seed)}")
+                depth = 1
 
         if seed is None or not minihelix.verify_seed(seed, block):
             print(f"Failed to mine microblock {idx}")
             raise RuntimeError(f"Failed to mine microblock {idx}")
 
         event["seeds"][idx] = seed
+        event["seed_depths"][idx] = depth
         mark_mined(event, idx)
+
+
+def _print_summary(event: dict) -> None:
+    """Print summary of mined blocks with compression stats."""
+
+    micro_size = event.get("header", {}).get("microblock_size", MICROBLOCK_SIZE)
+    block_count = len(event.get("microblocks", []))
+    total_saved = 0
+    total_original = micro_size * block_count
+    total_compressed = 0
+
+    print("Block summary:")
+    for idx, seed in enumerate(event.get("seeds", [])):
+        if seed is None:
+            continue
+        depth = event.get("seed_depths", [1] * block_count)[idx] or 1
+        length = len(seed)
+        saved = max(0, micro_size - length)
+        total_saved += saved
+        total_compressed += length
+        print(
+            f"  Block {idx}: seed length {length}, depth {depth}, saved {saved} bytes"
+        )
+
+    ratio = (
+        (total_original / total_compressed) if total_compressed else 0
+    )
+    print(f"Total blocks: {block_count}")
+    print(f"Estimated compression ratio: {ratio:.2f}x")
 
 
 def main() -> None:
@@ -72,6 +106,8 @@ def main() -> None:
     _mine_microblocks(event)
     path = save_event(event, EVENTS_DIR)
     print(f"Genesis event saved to {path}")
+
+    _print_summary(event)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
