@@ -122,13 +122,23 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
 
     old_seed = event["seeds"][index]
     old_depth = event["seed_depths"][index]
-    if len(old_seed) == len(seed) and depth < old_depth:
+
+    replace = False
+    if len(seed) < len(old_seed):
+        replace = True
+    elif len(seed) == len(old_seed) and depth < old_depth:
+        replace = True
+
+    if replace:
         refund = event["rewards"][index] - reward
         event["seeds"][index] = seed
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
         event["refunds"][index] += refund
+        print(
+            f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
+        )
 
     return refund
 
