@@ -34,4 +34,4 @@ def test_nested_mining_fallback(tmp_path, monkeypatch):
     node.mine_event(event)
 
     assert event["is_closed"]
-    assert event["seeds"][0]["depth"] == 2
+    assert event["seed_depths"][0] == 2

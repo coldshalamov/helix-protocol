@@ -37,7 +37,6 @@ def cmd_submit_statement(args: argparse.Namespace) -> None:
         args.statement,
         microblock_size=args.microblock_size,
         keyfile=args.keyfile,
-        normalize=args.normalize,
     )
 
     network = LocalGossipNetwork()
@@ -50,7 +49,7 @@ def cmd_submit_statement(args: argparse.Namespace) -> None:
 
 def cmd_mine_statement(args: argparse.Namespace) -> None:
     """Mine ``args.text`` using :func:`miner.find_seed` and save the event."""
-    event = event_manager.create_event(args.text, normalize=args.normalize)
+    event = event_manager.create_event(args.text)
     block_total = len(event["microblocks"])
     for idx, block in enumerate(event["microblocks"], start=1):
         print(f"Mining microblock {idx}/{block_total} ...")
@@ -104,20 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Microblock size in bytes",
     )
-    p_submit.add_argument(
-        "--normalize",
-        action="store_true",
-        help="Normalize statement before hashing",
-    )
     p_submit.set_defaults(func=cmd_submit_statement)
 
     p_mine = sub.add_parser("mine-statement", help="Mine microblocks for a statement")
     p_mine.add_argument("--text", required=True, help="Statement text")
-    p_mine.add_argument(
-        "--normalize",
-        action="store_true",
-        help="Normalize statement before hashing",
-    )
     p_mine.set_defaults(func=cmd_mine_statement)
 
     p_gen = sub.add_parser("generate-keys", help="Generate a keypair")
