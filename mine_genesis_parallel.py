@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Mine the Helix genesis event using real seed mining in parallel.
+"""Mine the Helix genesis event using real seed mining.
 
 This script creates the genesis event from the statement:
-"Helix is to blockchain what logic is to language."  Each microblock is three
-bytes long.  Mining iterates through candidate seeds starting at ``b'\x00'`` and
-checks them against all unmined microblocks using the MiniHelix ``G`` function.
-When a seed reproduces a microblock it is recorded, the block is marked mined
-and removed from the queue.  Once all blocks are mined the full event is saved
-as ``genesis.json`` and the reconstructed statement is printed.
+"Helix is to data what logic is to language."  Each microblock is three bytes
+long. Mining iterates through candidate seeds starting at ``b'\x00'`` and checks
+them against all unmined microblocks using the MiniHelix ``G`` function. When a
+seed reproduces a microblock it is recorded, the block is marked mined and
+removed from the queue.  Once all blocks are mined the full event is saved as
+``genesis.json`` and the reconstructed statement along with the computed
+``GENESIS_HASH`` is printed.
 """
 
 from __future__ import annotations
 
 import json
+import hashlib
+from pathlib import Path
 from typing import Iterator, List
 
 from helix.minihelix import G
@@ -55,7 +58,7 @@ except ModuleNotFoundError:
         reassemble_microblocks,
     )
 
-STATEMENT = "Helix is to blockchain what logic is to language."
+STATEMENT = "Helix is to data what logic is to language."
 MICROBLOCK_SIZE = 3
 GENESIS_FILE = "genesis.json"
 MAX_SEED_LEN = 3
@@ -98,8 +101,10 @@ def main() -> None:
     with open(GENESIS_FILE, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
 
+    digest = hashlib.sha256(Path(GENESIS_FILE).read_bytes()).hexdigest()
     print("✅ Genesis block mined and saved as genesis.json")
     print(f"✅ Reassembled statement: {statement}")
+    print(f"GENESIS_HASH = {digest}")
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
