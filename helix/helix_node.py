@@ -61,7 +61,7 @@ class HelixNode(GossipNode):
         node_id: str = "NODE",
         network: Optional[LocalGossipNetwork] = None,
         microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
-        genesis_file: str = "genesis.json",
+        genesis_file: str | None = None,
         max_nested_depth: int = 3,
     ) -> None:
         if network is None:
@@ -70,6 +70,8 @@ class HelixNode(GossipNode):
         self.events_dir = events_dir
         self.balances_file = balances_file
         self.microblock_size = microblock_size
+        if genesis_file is None:
+            genesis_file = str(Path(__file__).resolve().parent / "genesis.json")
         self.genesis_file = genesis_file
         self.max_nested_depth = max_nested_depth
         self.genesis = self._load_genesis(genesis_file)
@@ -78,10 +80,15 @@ class HelixNode(GossipNode):
         self.load_state()
 
     def _load_genesis(self, path: str) -> dict:
-        data = Path(path).read_bytes()
+        try:
+            data = Path(path).read_bytes()
+        except FileNotFoundError:
+            print(f"Genesis file not found: {path}")
+            raise SystemExit(1)
         digest = hashlib.sha256(data).hexdigest()
         if digest != GENESIS_HASH:
-            raise ValueError("genesis.json does not match GENESIS_HASH")
+            print("Genesis file hash mismatch")
+            raise SystemExit(1)
         return json.loads(data.decode("utf-8"))
 
     def load_state(self) -> None:
