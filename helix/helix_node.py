@@ -2,20 +2,25 @@ import hashlib
 import math
 import json
 import base64
+import os
+import queue
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
 
-from .signature_utils import load_keys, sign_data, verify_signature
+from .signature_utils import load_keys, sign_data, verify_signature, generate_keypair
 from nacl import signing
 from .config import GENESIS_HASH
+from .ledger import load_balances, save_balances
+from .gossip import GossipNode, LocalGossipNetwork
+from . import event_manager, minihelix, nested_miner
+from .gossip import GossipMessageType
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 BASE_REWARD = 1.0
-# Base gas cost applied per microblock when a statement is submitted
 GAS_FEE_PER_MICROBLOCK = 1
 
 
@@ -30,12 +35,6 @@ def reward_for_depth(depth: int) -> float:
 
 
 def calculate_reward(base: float, depth: int) -> float:
-    """Return the reward for ``depth`` using ``base`` tokens.
-
-    Reward scales inversely with the depth of the mined seed.  A depth-1
-    seed receives the full ``base`` amount, depth-2 receives half, and so
-    on.  The result is rounded to four decimal places.
-    """
     if depth < 1:
         raise ValueError("depth must be >= 1")
     reward = base / depth
@@ -52,16 +51,11 @@ def pad_block(data: bytes, size: int) -> bytes:
     return data
 
 
-def split_into_microblocks(
-    statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
-) -> Tuple[List[bytes], int, int]:
+def split_into_microblocks(statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE) -> Tuple[List[bytes], int, int]:
     encoded = statement.encode("utf-8")
     total_len = len(encoded)
     block_count = math.ceil(total_len / microblock_size)
-    blocks = [
-        pad_block(encoded[i : i + microblock_size], microblock_size)
-        for i in range(0, total_len, microblock_size)
-    ]
+    blocks = [pad_block(encoded[i:i + microblock_size], microblock_size) for i in range(0, total_len, microblock_size)]
     return blocks, block_count, total_len
 
 
@@ -78,15 +72,11 @@ def create_event(
     private_key: Optional[str] = None,
     registry: Optional["StatementRegistry"] = None,
 ) -> Dict[str, Any]:
-    microblocks, block_count, total_len = split_into_microblocks(
-        statement, microblock_size
-    )
+    microblocks, block_count, total_len = split_into_microblocks(statement, microblock_size)
     statement_id = sha256(statement.encode("utf-8"))
     if registry is not None:
         if registry.has_id(statement_id):
-            print(
-                f"Duplicate statement_id {statement_id} already finalized; skipping"
-            )
+            print(f"Duplicate statement_id {statement_id} already finalized; skipping")
             raise ValueError("Duplicate statement")
         registry.check_and_add(statement)
 
@@ -104,9 +94,7 @@ def create_event(
     if private_key is not None:
         key_bytes = base64.b64decode(private_key)
         signing_key = signing.SigningKey(key_bytes)
-        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode(
-            "ascii"
-        )
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
         originator_sig = sign_data(statement.encode("utf-8"), private_key)
 
     event = {
@@ -144,7 +132,7 @@ def accept_mined_seed(
     seed: bytes,
     depth: int,
     *,
-    miner: str | None = None,
+    miner: Optional[str] = None,
 ) -> float:
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
@@ -197,14 +185,12 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
-    # miners are stored directly and require no transformation
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
 
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
-    """Verify the originator signature attached to ``event``."""
     header = event.get("header", {})
     signature = header.get("originator_sig")
     pubkey = header.get("originator_pub")
@@ -212,9 +198,7 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
     if signature is None or pubkey is None:
         return False
 
-    payload = {
-        k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}
-    }
+    payload = {k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}}
     header_hash = sha256(repr(payload).encode("utf-8")).encode("utf-8")
 
     if not verify_signature(header_hash, signature, pubkey):
@@ -224,7 +208,6 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
 
 
 def verify_event_signature(event: Dict[str, Any]) -> bool:
-    """Verify the signature for ``event`` recorded at the root level."""
     signature = event.get("originator_sig")
     pubkey = event.get("originator_pub")
     statement = event.get("statement")
