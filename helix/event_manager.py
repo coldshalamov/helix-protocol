@@ -34,6 +34,8 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         event["rewards"][index] = reward
         if "miners" in event:
             event["miners"][index] = miner
+        if "refund_miners" in event:
+            event["refund_miners"][index] = None
         mark_mined(event, index)
         return 0.0
 
@@ -53,7 +55,12 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
         if "miners" in event:
+            old_miner = event["miners"][index]
             event["miners"][index] = miner
+        else:
+            old_miner = None
+        if "refund_miners" in event:
+            event["refund_miners"][index] = old_miner
         event["refunds"][index] += refund
         print(
             f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
