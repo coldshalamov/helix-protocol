@@ -64,35 +64,16 @@ MICROBLOCK_SIZE = 3
 GENESIS_FILE = "genesis.json"
 
 DEFAULT_MAX_DEPTH = 4
-DEFAULT_MAX_SEED_LEN = 32
-DEFAULT_ATTEMPTS = 10_000_000
 
 
-def _worker(
-    block: bytes,
-    queue: mp.Queue,
-    max_depth: int,
-    max_seed_len: int,
-    attempts: int,
-) -> None:
-    """Worker process that searches for a seed for ``block``."""
-    result = find_seed(
-        block,
-        max_depth=max_depth,
-        max_seed_len=max_seed_len,
-        attempts=attempts,
-    )
+def _worker(block: bytes, queue: mp.Queue, max_depth: int) -> None:
+    """Search ``block`` for a seed and put the result in ``queue``."""
+    result = find_seed(block, max_depth=max_depth)
     if result is not None:
         queue.put(result)
 
 
-def mine_event(
-    event: dict,
-    *,
-    max_depth: int = DEFAULT_MAX_DEPTH,
-    max_seed_len: int = DEFAULT_MAX_SEED_LEN,
-    max_attempts: int = DEFAULT_ATTEMPTS,
-) -> None:
+def mine_event(event: dict, *, max_depth: int = DEFAULT_MAX_DEPTH) -> None:
     """Mine all microblocks for ``event`` using parallel workers."""
 
     cpu_count = mp.cpu_count()
@@ -105,7 +86,7 @@ def mine_event(
         procs = [
             mp.Process(
                 target=_worker,
-                args=(block, result_q, max_depth, max_seed_len, max_attempts),
+                args=(block, result_q, max_depth),
             )
             for _ in range(cpu_count)
         ]
@@ -135,23 +116,14 @@ def mine_event(
             event["seed_depths"][idx] = depth
             mark_mined(event, idx)
         else:
-            logging.warning(
-                "  No seed found for microblock %d after %d attempts per worker",
-                idx,
-                max_attempts,
-            )
+            logging.warning("  No seed found for microblock %d", idx)
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     event = create_event(STATEMENT, microblock_size=MICROBLOCK_SIZE)
-    mine_event(
-        event,
-        max_depth=DEFAULT_MAX_DEPTH,
-        max_seed_len=DEFAULT_MAX_SEED_LEN,
-        max_attempts=DEFAULT_ATTEMPTS,
-    )
+    mine_event(event, max_depth=DEFAULT_MAX_DEPTH)
 
     statement = reassemble_microblocks(event["microblocks"])
 
