@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import random
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, Generator
 
@@ -11,12 +10,12 @@ try:
     from . import event_manager
     from .signature_utils import verify_signature
     from .ledger import load_balances, save_balances
-    from .miner import find_seed
+    from .minihelix import mine_seed as find_seed, verify_seed
 except ImportError:  # pragma: no cover - allow running as a script
     from helix import event_manager
     from helix.signature_utils import verify_signature
     from helix.ledger import load_balances, save_balances
-    from helix.miner import find_seed
+    from helix.minihelix import mine_seed as find_seed, verify_seed
 
 # ----------------------------------------------------------------------------
 # Signature Verification
@@ -45,14 +44,6 @@ def submit_statement_queue() -> Generator[str, None, None]:
         "The James Webb telescope detected complex organic molecules in interstellar space."
     )
     yield statement
-
-
-def simulate_mining(block_index: int) -> None:
-    """Mock the MiniHelix GPoW process for a single microblock."""
-    # Future implementation will search for a seed that regenerates the microblock
-    # using the MiniHelix algorithm. Here we just sleep for a short random time
-    # to emulate work being done.
-    time.sleep(random.uniform(0.5, 1.5))
 
 
 def auto_resolve_bets(event: Dict[str, Any]) -> None:
@@ -104,18 +95,19 @@ class HelixNode:
         """Mine a single microblock and update the event state."""
         miner_id = random.randint(1000, 9999)
         self.logger.info("Miner %s started microblock %d", miner_id, index)
-        simulate_mining(index)
         target = event["microblocks"][index]
-        seed = find_seed(target, attempts=10000)  # simplified search
-        if seed is not None:
+        seed = find_seed(target, max_attempts=1000000)
+        if seed is not None and verify_seed(seed, target):
             event["seeds"][index] = seed
-        event_manager.mark_mined(event, index)
+            event_manager.mark_mined(event, index)
+            status = "mined"
+        else:
+            status = "failed"
+        self.logger.info("Microblock %d %s by miner %s", index, status, miner_id)
         mined = sum(1 for m in event["mined_status"] if m)
         total = len(event["microblocks"])
         self.logger.info(
-            "Miner %s finished microblock %d (%d/%d mined)",
-            miner_id,
-            index,
+            "Progress: %d/%d mined",
             mined,
             total,
         )
