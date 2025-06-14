@@ -17,7 +17,7 @@ def test_simulated_mining():
         seed = minihelix.mine_seed(block, max_attempts=100000)
         assert seed is not None
         assert minihelix.verify_seed(seed, block)
-        event_manager.accept_mined_seed(event, idx, seed, 1)
+        event_manager.accept_mined_seed(event, idx, [seed])
     assert event["is_closed"]
     final = event_manager.reassemble_microblocks(event["microblocks"])
     assert final == statement

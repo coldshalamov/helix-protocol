@@ -75,8 +75,7 @@ def cmd_mine(args: argparse.Namespace) -> None:
         if not nested_miner.verify_nested_seed(chain, block):
             print(f"Seed verification failed for block {idx}")
             continue
-        seed = chain[0]
-        event_manager.accept_mined_seed(event, idx, seed, depth)
+        event_manager.accept_mined_seed(event, idx, chain)
         print(f"Mined microblock {idx}")
     event_manager.save_event(event, str(events_dir))
 
@@ -113,8 +112,7 @@ def cmd_remine_microblock(args: argparse.Namespace) -> None:
         print(f"Seed verification failed for block {index}")
         return
 
-    seed = chain[0]
-    event_manager.accept_mined_seed(event, index, seed, depth)
+    event_manager.accept_mined_seed(event, index, chain)
     event_manager.save_event(event, str(events_dir))
     print(f"Remined microblock {index}")
 

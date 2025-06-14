@@ -4,7 +4,12 @@ pytest.importorskip("nacl")
 
 from helix.helix_node import HelixNode
 from helix.gossip import LocalGossipNetwork
-from helix import minihelix
+from helix import minihelix, event_manager
+
+
+@pytest.fixture(autouse=True)
+def _mock_verify(monkeypatch):
+    monkeypatch.setattr(event_manager.nested_miner, "verify_nested_seed", lambda c, b: True)
 
 
 def test_nested_mining_fallback(tmp_path, monkeypatch):

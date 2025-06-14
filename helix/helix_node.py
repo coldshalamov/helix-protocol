@@ -127,6 +127,7 @@ class HelixNode(GossipNode):
             simulate_mining(idx)
             best_seed: Optional[bytes] = None
             best_depth = 0
+            best_chain: Optional[list[bytes]] = None
 
             seed = find_seed(block)
             if seed and verify_seed(seed, block):
@@ -149,13 +150,14 @@ class HelixNode(GossipNode):
                     ):
                         best_seed = candidate
                         best_depth = found_depth
+                        best_chain = chain
 
-            if best_seed is not None:
+            if best_seed is not None and best_chain is not None:
                 previous_seed = event["seeds"][idx]
                 previous_depth = event["seed_depths"][idx]
 
                 # Call reward-aware acceptance function
-                event_manager.accept_mined_seed(event, idx, best_seed, best_depth)
+                event_manager.accept_mined_seed(event, idx, best_chain)
 
                 self.send_message(
                     {
@@ -254,12 +256,15 @@ class HelixNode(GossipNode):
                 d = int(depth)
             except Exception:
                 d = 1
+            chain = [seed]
             current = seed
-            for _ in range(d):
+            for _ in range(1, d):
                 current = minihelix.G(current, len(block))
+                chain.append(current)
+            current = minihelix.G(current, len(block))
             if current != block:
                 return
-            event_manager.accept_mined_seed(event, index, seed, d)
+            event_manager.accept_mined_seed(event, index, chain)
             event_manager.save_event(event, self.events_dir)
         elif msg_type == GossipMessageType.FINALIZED:
             event = message.get("event")

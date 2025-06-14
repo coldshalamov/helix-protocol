@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 from .signature_utils import load_keys, sign_data, verify_signature
 from nacl import signing
 from .config import GENESIS_HASH
+from . import nested_miner
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -136,7 +137,20 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int) -> float:
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: list[bytes]) -> float:
+    """Accept ``seed_chain`` for microblock ``index`` of ``event``.
+
+    ``seed_chain`` contains the starting seed followed by any intermediate
+    values.  Its length represents the depth of the nested mining.  The chain
+    is verified with :func:`verify_nested_seed` before it is applied.
+    """
+
+    seed = seed_chain[0]
+    depth = len(seed_chain)
+
+    block = event["microblocks"][index]
+    assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
+
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
     refund = 0.0
