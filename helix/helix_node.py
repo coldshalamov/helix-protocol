@@ -221,41 +221,37 @@ class HelixNode(GossipNode):
             if event["seeds"][idx]:
                 continue
             simulate_mining(idx)
-            best_seed: Optional[bytes] = None
-            best_depth = 0
 
-            seed = find_seed(block)
-            if seed and verify_seed(seed, block):
-                best_seed = seed
-                best_depth = 1
+            result = nested_miner.find_nested_seed(block, max_depth=self.max_nested_depth)
+            if result is None:
+                print(f"No seed found for block {idx}")
+                continue
 
-            for depth in range(2, self.max_nested_depth + 1):
-                if best_seed is not None and best_depth <= depth:
-                    break
-                result = nested_miner.find_nested_seed(block, max_depth=depth)
-                if result:
-                    chain, found_depth = result
-                    candidate = chain[0]
-                    if (
-                        best_seed is None
-                        or found_depth < best_depth
-                        or (found_depth == best_depth and len(candidate) < len(best_seed))
-                    ):
-                        best_seed = candidate
-                        best_depth = found_depth
+            chain, depth = result
+            prev_seed = event["seeds"][idx]
+            prev_depth = event["seed_depths"][idx]
 
-            if best_seed is not None:
-                event["seeds"][idx] = {"seed": best_seed, "depth": best_depth}
-                event_manager.mark_mined(event, idx)
-                if event.get("is_closed"):
-                    self.send_message(
-                        {
-                            "type": GossipMessageType.FINALIZED,
-                            "event_id": evt_id,
-                            "result": True,
-                        }
-                    )
-                    break
+            event_manager.accept_mined_seed(event, idx, seed=chain[0], depth=depth)
+
+            if prev_seed is not None and event["seeds"][idx] is prev_seed:
+                reason = []
+                if len(chain[0]) != len(prev_seed):
+                    reason.append("length mismatch")
+                if depth >= prev_depth:
+                    reason.append("depth not improved")
+                print(f"Seed for block {idx} rejected ({', '.join(reason)})")
+
+            event_manager.save_event(event, self.events_dir)
+
+            if event.get("is_closed"):
+                self.send_message(
+                    {
+                        "type": GossipMessageType.FINALIZED,
+                        "event_id": evt_id,
+                        "result": True,
+                    }
+                )
+                break
 
     def finalize_event(self, event: dict) -> None:
         for bet in event.get("bets", {}).get("YES", []):
