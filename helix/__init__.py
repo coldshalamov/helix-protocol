@@ -8,6 +8,7 @@ __all__ = [
     "signature_utils",
     "helix_node",
     "cli",
+    "statement_registry",
     "gossip",
     "peer_discovery",
     "ui",
