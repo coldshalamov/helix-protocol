@@ -22,3 +22,17 @@ def test_event_closure():
     for i in range(event["header"]["block_count"]):
         em.mark_mined(event, i)
     assert event["is_closed"] is True
+
+
+def test_accept_block_size_seed():
+    event = em.create_event("ab", microblock_size=2)
+    seed = b"xy"
+    refund = em.accept_mined_seed(event, 0, seed, 1)
+    assert refund == 0
+    assert event["seeds"][0] == seed
+
+
+def test_reject_oversize_seed():
+    event = em.create_event("ab", microblock_size=2)
+    with pytest.raises(ValueError):
+        em.accept_mined_seed(event, 0, b"toolong", 1)

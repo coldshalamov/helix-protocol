@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
 
-from .signature_utils import load_keys, sign_data
+from .signature_utils import load_keys, sign_data, verify_signature
 from .config import GENESIS_HASH
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
@@ -66,6 +66,11 @@ def create_event(
     )
     statement_id = sha256(statement.encode("utf-8"))
     if registry is not None:
+        if registry.has_id(statement_id):
+            print(
+                f"Duplicate statement_id {statement_id} already finalized; skipping"
+            )
+            raise ValueError("Duplicate statement")
         registry.check_and_add(statement)
 
     header = {
@@ -112,6 +117,10 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
     reward = reward_for_depth(depth)
     refund = 0.0
 
+    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    if len(seed) > microblock_size:
+        raise ValueError("seed length exceeds microblock size")
+
     if event["seeds"][index] is None:
         event["seeds"][index] = seed
         event["seed_depths"][index] = depth
@@ -156,6 +165,26 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     return str(filename)
 
 
+def verify_originator_signature(event: Dict[str, Any]) -> bool:
+    """Verify the originator signature attached to ``event``."""
+    header = event.get("header", {})
+    signature = header.get("originator_sig")
+    pubkey = header.get("originator_pub")
+
+    if signature is None or pubkey is None:
+        return False
+
+    payload = {
+        k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}
+    }
+    header_hash = sha256(repr(payload).encode("utf-8")).encode("utf-8")
+
+    if not verify_signature(header_hash, signature, pubkey):
+        raise ValueError("Invalid originator signature")
+
+    return True
+
+
 def validate_parent(event: Dict[str, Any], *, ancestors: Optional[set[str]] = None) -> None:
     if ancestors is None:
         ancestors = {GENESIS_HASH}
@@ -190,6 +219,7 @@ __all__ = [
     "reward_for_depth",
     "accept_mined_seed",
     "save_event",
+    "verify_originator_signature",
     "load_event",
     "validate_parent",
 ]

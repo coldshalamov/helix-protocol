@@ -1,7 +1,6 @@
 import hashlib
 import os
 import random
-from typing import Optional
 
 
 def truncate_hash(data: bytes, length: int) -> bytes:
@@ -16,7 +15,7 @@ def generate_microblock(seed: bytes) -> bytes:
     return hashlib.sha256(input_data).digest()
 
 
-def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> Optional[bytes]:
+def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> bytes | None:
     """Search for a seed that generates `target` when truncated to len(target)."""
     target_len = len(target)
     for _ in range(attempts):
