@@ -7,7 +7,7 @@ from . import event_manager
 from . import nested_miner
 from . import minihelix
 from . import betting_interface
-from .ledger import load_balances
+from .ledger import load_balances, compression_stats
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -18,10 +18,13 @@ def cmd_status(args: argparse.Namespace) -> None:
     known_peers = len(node.known_peers)
     total_events = len(node.events)
     finalized_events = sum(1 for e in node.events.values() if e.get("is_closed"))
+    saved, hlx = compression_stats(str(events_dir))
     balances = load_balances(str(balances_file))
     print(f"Known peers: {known_peers}")
     print(f"Events loaded: {total_events}")
     print(f"Events finalized: {finalized_events}")
+    print(f"Compression saved: {saved} bytes")
+    print(f"HLX awarded: {hlx}")
     print("Balances:")
     print(json.dumps(balances, indent=2))
 
