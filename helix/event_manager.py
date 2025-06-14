@@ -118,6 +118,7 @@ def create_event(
         "penalties": [0] * block_count,
         "rewards": [0.0] * block_count,
         "refunds": [0.0] * block_count,
+        "miners": [None] * block_count,
         "is_closed": False,
         "bets": {"YES": [], "NO": []},
     }
@@ -136,7 +137,14 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int) -> float:
+def accept_mined_seed(
+    event: Dict[str, Any],
+    index: int,
+    seed: bytes,
+    depth: int,
+    *,
+    miner: str | None = None,
+) -> float:
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
     refund = 0.0
@@ -150,6 +158,8 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
+        if "miners" in event:
+            event["miners"][index] = miner
         mark_mined(event, index)
         return 0.0
 
@@ -168,6 +178,8 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
+        if "miners" in event:
+            event["miners"][index] = miner
         event["refunds"][index] += refund
         print(
             f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
@@ -184,6 +196,7 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    # miners are stored directly and require no transformation
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
@@ -243,6 +256,7 @@ def load_event(path: str) -> Dict[str, Any]:
     data.setdefault("penalties", [0] * block_count)
     data.setdefault("rewards", [0.0] * block_count)
     data.setdefault("refunds", [0.0] * block_count)
+    data.setdefault("miners", [None] * block_count)
     validate_parent(data)
     return data
 
@@ -250,6 +264,7 @@ def load_event(path: str) -> Dict[str, Any]:
 __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",
     "FINAL_BLOCK_PADDING_BYTE",
+    "BASE_REWARD",
     "split_into_microblocks",
     "reassemble_microblocks",
     "create_event",

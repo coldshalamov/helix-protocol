@@ -155,7 +155,9 @@ class HelixNode(GossipNode):
                 previous_depth = event["seed_depths"][idx]
 
                 # Call reward-aware acceptance function
-                event_manager.accept_mined_seed(event, idx, best_seed, best_depth)
+                event_manager.accept_mined_seed(
+                    event, idx, best_seed, best_depth, miner=self.node_id
+                )
 
                 self.send_message(
                     {
@@ -164,6 +166,7 @@ class HelixNode(GossipNode):
                         "index": idx,
                         "seed": best_seed.hex(),
                         "depth": best_depth,
+                        "miner": self.node_id,
                     }
                 )
 
@@ -202,6 +205,23 @@ class HelixNode(GossipNode):
             self.balances[originator] = self.balances.get(originator, 0) + refund
             pot -= refund
 
+        # distribute mining rewards
+        miners = event.get("miners", [])
+        depths = event.get("seed_depths", [])
+        gas_pool = event.get("gas_pool", event_manager.BASE_REWARD * len(depths))
+        distributed = 0.0
+        for miner_id, depth in zip(miners, depths):
+            if miner_id is None or depth <= 0:
+                continue
+            reward = event_manager.calculate_reward(event_manager.BASE_REWARD, depth)
+            self.balances[miner_id] = self.balances.get(miner_id, 0) + reward
+            distributed += reward
+        unused_gas = gas_pool - distributed
+        if unused_gas > 0:
+            strategy = event.get("gas_strategy", "burn")
+            if strategy == "reallocate" and originator:
+                self.balances[originator] = self.balances.get(originator, 0) + unused_gas
+
         if winner_total > 0:
             for bet in winners:
                 pub = bet.get("pubkey")
@@ -234,6 +254,7 @@ class HelixNode(GossipNode):
             index = message.get("index")
             seed_hex = message.get("seed")
             depth = message.get("depth", 1)
+            miner_id = message.get("miner")
             if (
                 not isinstance(evt_id, str)
                 or not isinstance(index, int)
@@ -259,7 +280,7 @@ class HelixNode(GossipNode):
                 current = minihelix.G(current, len(block))
             if current != block:
                 return
-            event_manager.accept_mined_seed(event, index, seed, d)
+            event_manager.accept_mined_seed(event, index, seed, d, miner=miner_id)
             event_manager.save_event(event, self.events_dir)
         elif msg_type == GossipMessageType.FINALIZED:
             event = message.get("event")
