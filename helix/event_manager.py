@@ -5,13 +5,15 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 
 from nacl import signing
-
 from . import betting_interface, nested_miner
 from .config import GENESIS_HASH
 from .signature_utils import sign_data, verify_signature
+
+if TYPE_CHECKING:
+    from .statement_registry import StatementRegistry
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -30,10 +32,8 @@ def reward_for_depth(depth: int) -> float:
 
 def calculate_reward(base: float, depth: int) -> float:
     """Return the scaled reward for ``depth``."""
-
     if depth < 1:
         raise ValueError("depth must be >= 1")
-
     reward = base / depth
     return round(reward, 4)
 
@@ -99,9 +99,7 @@ def create_event(
     if private_key is not None:
         key_bytes = base64.b64decode(private_key)
         signing_key = signing.SigningKey(key_bytes)
-        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode(
-            "ascii"
-        )
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
         originator_sig = sign_data(statement.encode("utf-8"), private_key)
 
     event = {
@@ -129,7 +127,6 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
     Returns a mapping of participant pubkeys to payout amounts which is also
     stored in ``event['payouts']``.
     """
-
     yes_raw = event.get("bets", {}).get("YES", [])
     no_raw = event.get("bets", {}).get("NO", [])
 
@@ -189,14 +186,9 @@ def mark_mined(
             save_event(event, events_dir)
 
 
-def accept_mined_seed(
-    event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None
-) -> float:
-    """Accept ``seed_chain`` for microblock ``index`` of ``event``."""
-
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
     seed = seed_chain[0]
     depth = len(seed_chain)
-
     block = event["microblocks"][index]
     assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
 
@@ -204,9 +196,7 @@ def accept_mined_seed(
     reward = reward_for_depth(depth)
     refund = 0.0
 
-    microblock_size = event.get("header", {}).get(
-        "microblock_size", DEFAULT_MICROBLOCK_SIZE
-    )
+    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
     if len(seed) > microblock_size:
         raise ValueError("seed length exceeds microblock size")
 
@@ -217,6 +207,8 @@ def accept_mined_seed(
         event["rewards"][index] = reward
         if "miners" in event:
             event["miners"][index] = miner
+        if "refund_miners" in event:
+            event["refund_miners"][index] = None
         mark_mined(event, index)
         return 0.0
 
@@ -236,11 +228,14 @@ def accept_mined_seed(
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
         if "miners" in event:
+            old_miner = event["miners"][index]
             event["miners"][index] = miner
+        else:
+            old_miner = None
+        if "refund_miners" in event:
+            event["refund_miners"][index] = old_miner
         event["refunds"][index] += refund
-        print(
-            f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
-        )
+        print(f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}")
 
     return refund
 
@@ -267,9 +262,7 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
     if signature is None or pubkey is None:
         return False
 
-    payload = {
-        k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}
-    }
+    payload = {k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}}
     header_hash = sha256(repr(payload).encode("utf-8")).encode("utf-8")
 
     if not verify_signature(header_hash, signature, pubkey):
@@ -334,4 +327,3 @@ __all__ = [
     "load_event",
     "validate_parent",
 ]
-
