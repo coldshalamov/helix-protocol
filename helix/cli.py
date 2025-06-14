@@ -8,6 +8,7 @@ from . import signature_utils
 import threading
 import time
 from . import event_manager
+from . import signature_utils as su
 from . import nested_miner
 from . import minihelix
 from . import betting_interface
@@ -47,7 +48,10 @@ def cmd_start_node(args: argparse.Namespace) -> None:
 
 def cmd_submit_statement(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
-    event = event_manager.create_event(args.statement, keyfile=args.keyfile)
+    private_key = None
+    if args.keyfile:
+        _, private_key = su.load_keys(args.keyfile)
+    event = event_manager.create_event(args.statement, private_key=private_key)
     path = event_manager.save_event(event, str(events_dir))
     print(f"Statement saved to {path}")
     print(f"Statement ID: {event['header']['statement_id']}")

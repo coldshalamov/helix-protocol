@@ -63,10 +63,11 @@ def main() -> None:
     balances = {pubkey: {"balance": 0, "genesis_tokens": 1000}}
     save_balances(balances, BALANCES_FILE)
 
+
     event = create_event(
         STATEMENT,
         microblock_size=MICROBLOCK_SIZE,
-        keyfile=KEYFILE,
+        private_key=privkey,
     )
     _mine_microblocks(event)
     path = save_event(event, EVENTS_DIR)

@@ -1,6 +1,7 @@
 import hashlib
 import math
 import json
+import base64
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
@@ -8,6 +9,7 @@ if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
 
 from .signature_utils import load_keys, sign_data, verify_signature
+from nacl import signing
 from .config import GENESIS_HASH
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
@@ -73,7 +75,7 @@ def create_event(
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
     *,
     parent_id: str = GENESIS_HASH,
-    keyfile: Optional[str] = None,
+    private_key: Optional[str] = None,
     registry: Optional["StatementRegistry"] = None,
 ) -> Dict[str, Any]:
     microblocks, block_count, total_len = split_into_microblocks(
@@ -96,11 +98,15 @@ def create_event(
         "parent_id": parent_id,
     }
 
-    if keyfile is not None:
-        pub, priv = load_keys(keyfile)
-        signature = sign_data(repr(header).encode("utf-8"), priv)
-        header["originator_sig"] = signature
-        header["originator_pub"] = pub
+    originator_pub: Optional[str] = None
+    originator_sig: Optional[str] = None
+    if private_key is not None:
+        key_bytes = base64.b64decode(private_key)
+        signing_key = signing.SigningKey(key_bytes)
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode(
+            "ascii"
+        )
+        originator_sig = sign_data(statement.encode("utf-8"), private_key)
 
     event = {
         "header": header,
@@ -115,6 +121,9 @@ def create_event(
         "is_closed": False,
         "bets": {"YES": [], "NO": []},
     }
+    if originator_pub is not None:
+        event["originator_pub"] = originator_pub
+        event["originator_sig"] = originator_sig
     return event
 
 
@@ -200,6 +209,21 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
     return True
 
 
+def verify_event_signature(event: Dict[str, Any]) -> bool:
+    """Verify the signature for ``event`` recorded at the root level."""
+    signature = event.get("originator_sig")
+    pubkey = event.get("originator_pub")
+    statement = event.get("statement")
+
+    if signature is None or pubkey is None or statement is None:
+        return False
+
+    if not verify_signature(statement.encode("utf-8"), signature, pubkey):
+        raise ValueError("Invalid event signature")
+
+    return True
+
+
 def validate_parent(event: Dict[str, Any], *, ancestors: Optional[set[str]] = None) -> None:
     if ancestors is None:
         ancestors = {GENESIS_HASH}
@@ -236,6 +260,7 @@ __all__ = [
     "accept_mined_seed",
     "save_event",
     "verify_originator_signature",
+    "verify_event_signature",
     "load_event",
     "validate_parent",
 ]

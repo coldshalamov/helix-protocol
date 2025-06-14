@@ -103,12 +103,12 @@ class HelixNode(GossipNode):
             event_manager.save_event(event, self.events_dir)
         save_balances(self.balances, self.balances_file)
 
-    def create_event(self, statement: str, *, keyfile: Optional[str] = None) -> dict:
+    def create_event(self, statement: str, *, private_key: Optional[str] = None) -> dict:
         return event_manager.create_event(
             statement,
             microblock_size=self.microblock_size,
             parent_id=GENESIS_HASH,
-            keyfile=keyfile,
+            private_key=private_key,
         )
 
     def import_event(self, event: dict) -> None:
