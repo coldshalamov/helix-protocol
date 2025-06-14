@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import queue
 import threading
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from . import event_manager, minihelix
+from .config import GENESIS_HASH
+from .ledger import load_balances, save_balances
 
 
 class LocalGossipNetwork:
@@ -101,4 +109,154 @@ class GossipNode:
         return msg
 
 
-__all__ = ["LocalGossipNetwork", "GossipNode"]
+class GossipMessageType:
+    """Basic gossip message types used between :class:`HelixNode` peers."""
+
+    NEW_STATEMENT = "NEW_STATEMENT"
+    FINALIZED = "FINALIZED"
+
+
+def simulate_mining(index: int) -> None:
+    """Placeholder hook executed before mining ``index``."""
+
+    return None
+
+
+def find_seed(target: bytes, attempts: int = 1_000_000) -> Optional[bytes]:
+    """Search for a seed regenerating ``target``."""
+
+    return minihelix.mine_seed(target, max_attempts=attempts)
+
+
+def verify_seed(seed: bytes, target: bytes) -> bool:
+    """Verify ``seed`` regenerates ``target``."""
+
+    return minihelix.verify_seed(seed, target)
+
+
+class HelixNode(GossipNode):
+    """Minimal Helix node used for tests."""
+
+    def __init__(
+        self,
+        *,
+        events_dir: str,
+        balances_file: str,
+        node_id: str = "NODE",
+        network: LocalGossipNetwork | None = None,
+        microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
+        genesis_file: str = "genesis.json",
+    ) -> None:
+        if network is None:
+            network = LocalGossipNetwork()
+        super().__init__(node_id, network)
+        self.events_dir = events_dir
+        self.balances_file = balances_file
+        self.microblock_size = microblock_size
+        self.genesis_file = genesis_file
+        self.genesis = self._load_genesis(genesis_file)
+        self.events: Dict[str, Dict[str, Any]] = {}
+        self.balances: Dict[str, int] = {}
+        self.load_state()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    def _load_genesis(self, path: str) -> dict:
+        data = Path(path).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != GENESIS_HASH:
+            raise ValueError("genesis.json does not match GENESIS_HASH")
+        return json.loads(data.decode("utf-8"))
+
+    def load_state(self) -> None:
+        Path(self.events_dir).mkdir(parents=True, exist_ok=True)
+        for fname in os.listdir(self.events_dir):
+            if not fname.endswith(".json"):
+                continue
+            try:
+                event = event_manager.load_event(
+                    os.path.join(self.events_dir, fname)
+                )
+            except Exception:
+                continue
+            if event.get("header", {}).get("parent_id") != GENESIS_HASH:
+                continue
+            self.events[event["header"]["statement_id"]] = event
+        self.balances = load_balances(self.balances_file)
+
+    def save_state(self) -> None:
+        for event in self.events.values():
+            event_manager.save_event(event, self.events_dir)
+        save_balances(self.balances, self.balances_file)
+
+    # ------------------------------------------------------------------
+    # Event helpers
+    def create_event(self, statement: str, *, keyfile: str | None = None) -> dict:
+        return event_manager.create_event(
+            statement,
+            microblock_size=self.microblock_size,
+            parent_id=GENESIS_HASH,
+            keyfile=keyfile,
+        )
+
+    def import_event(self, event: dict) -> None:
+        if event.get("header", {}).get("parent_id") != GENESIS_HASH:
+            raise ValueError("invalid parent_id")
+        evt_id = event["header"]["statement_id"]
+        self.events[evt_id] = event
+
+    def mine_event(self, event: dict) -> None:
+        for idx, block in enumerate(event["microblocks"]):
+            if event["seeds"][idx]:
+                continue
+            simulate_mining(idx)
+            seed = find_seed(block)
+            if seed and verify_seed(seed, block):
+                event["seeds"][idx] = seed
+                event_manager.mark_mined(event, idx)
+
+    def finalize_event(self, event: dict) -> None:
+        for bet in event.get("bets", {}).get("YES", []):
+            pub = bet.get("pubkey")
+            amt = bet.get("amount", 0)
+            if pub:
+                self.balances[pub] = self.balances.get(pub, 0) + amt
+        self.save_state()
+        self.send_message({"type": GossipMessageType.FINALIZED, "balances": self.balances})
+
+    # ------------------------------------------------------------------
+    # Networking
+    def _handle_message(self, message: Dict[str, Any]) -> None:
+        msg_type = message.get("type")
+        if msg_type == GossipMessageType.NEW_STATEMENT:
+            event = message.get("event")
+            if event:
+                try:
+                    self.import_event(event)
+                    self.save_state()
+                except ValueError:
+                    pass
+        elif msg_type == GossipMessageType.FINALIZED:
+            balances = message.get("balances")
+            if isinstance(balances, dict):
+                self.balances = balances
+                save_balances(self.balances, self.balances_file)
+
+    def _message_loop(self) -> None:
+        while True:
+            try:
+                msg = self.receive(timeout=1.0)
+            except queue.Empty:
+                continue
+            self._handle_message(msg)
+
+
+__all__ = [
+    "LocalGossipNetwork",
+    "GossipNode",
+    "GossipMessageType",
+    "HelixNode",
+    "simulate_mining",
+    "find_seed",
+    "verify_seed",
+]
