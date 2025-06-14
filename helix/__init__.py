@@ -7,6 +7,7 @@ __all__ = [
     "miner",
     "signature_utils",
     "helix_node",
+    "cli",
     "gossip",
     "ui",
 ]
