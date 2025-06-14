@@ -112,6 +112,10 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
     reward = reward_for_depth(depth)
     refund = 0.0
 
+    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    if len(seed) > microblock_size:
+        raise ValueError("seed length exceeds microblock size")
+
     if event["seeds"][index] is None:
         event["seeds"][index] = seed
         event["seed_depths"][index] = depth
@@ -157,16 +161,7 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
 
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
-    """Verify the originator signature attached to ``event``.
-
-    The function computes the SHA-256 hash of the header (excluding the
-    signature fields) and verifies that ``originator_sig`` was produced
-    by the private key corresponding to ``originator_pub``.  If the
-    signature is present but does not validate, a ``ValueError`` is
-    raised.  The function returns ``True`` when the signature is valid
-    and ``False`` when the event lacks originator signature data.
-    """
-
+    """Verify the originator signature attached to ``event``."""
     header = event.get("header", {})
     signature = header.get("originator_sig")
     pubkey = header.get("originator_pub")

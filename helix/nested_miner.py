@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import os
 import random
-from typing import List, Optional, Tuple
+
 
 from .minihelix import G
 
 
 def find_nested_seed(
     target_block: bytes, max_depth: int = 3, *, attempts: int = 1_000_000
-) -> Optional[Tuple[List[bytes], int]]:
+) -> tuple[list[bytes], int] | None:
     """Search for a seed that produces ``target_block`` through nested ``G``.
 
     Returns a tuple of ``(seed_chain, depth)`` where ``seed_chain`` contains
@@ -35,7 +35,7 @@ def find_nested_seed(
     return None
 
 
-def verify_nested_seed(seed_chain: List[bytes], target_block: bytes) -> bool:
+def verify_nested_seed(seed_chain: list[bytes], target_block: bytes) -> bool:
     """Return ``True`` if applying ``G`` over ``seed_chain`` yields ``target_block``."""
 
     if not seed_chain:
