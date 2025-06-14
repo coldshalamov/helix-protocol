@@ -30,6 +30,24 @@ from .config import GENESIS_HASH
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 
+# Base reward for mining a microblock.  Actual payout is scaled by
+# the nesting depth of the provided seed.
+BASE_REWARD = 1.0
+
+
+def nesting_penalty(depth: int) -> int:
+    """Return the penalty associated with ``depth`` levels of nesting."""
+
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+    return depth - 1
+
+
+def reward_for_depth(depth: int) -> float:
+    """Return mining reward scaled by ``depth``."""
+
+    return BASE_REWARD / depth
+
 
 def normalize_statement(statement: str) -> str:
     """Return ``statement`` lowercased with collapsed whitespace and without
@@ -124,6 +142,10 @@ def create_event(
         "microblocks": microblocks,
         "mined_status": [False] * block_count,
         "seeds": [None] * block_count,
+        "seed_depths": [0] * block_count,
+        "penalties": [0] * block_count,
+        "rewards": [0.0] * block_count,
+        "refunds": [0.0] * block_count,
         "is_closed": False,
         "bets": {"YES": [], "NO": []},
     }
@@ -141,6 +163,37 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 
+def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int) -> float:
+    """Accept ``seed`` for microblock ``index`` with nesting ``depth``.
+
+    Returns the reward refund amount if an existing seed was replaced.
+    """
+
+    penalty = nesting_penalty(depth)
+    reward = reward_for_depth(depth)
+    refund = 0.0
+
+    if event["seeds"][index] is None:
+        event["seeds"][index] = seed
+        event["seed_depths"][index] = depth
+        event["penalties"][index] = penalty
+        event["rewards"][index] = reward
+        mark_mined(event, index)
+        return 0.0
+
+    old_seed = event["seeds"][index]
+    old_depth = event["seed_depths"][index]
+    if len(old_seed) == len(seed) and depth < old_depth:
+        refund = event["rewards"][index] - reward
+        event["seeds"][index] = seed
+        event["seed_depths"][index] = depth
+        event["penalties"][index] = penalty
+        event["rewards"][index] = reward
+        event["refunds"][index] += refund
+
+    return refund
+
+
 def save_event(event: Dict[str, Any], directory: str) -> str:
     """Persist ``event`` to ``directory`` as JSON and return file path."""
     path = Path(directory)
@@ -150,6 +203,7 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    # numeric fields are stored directly
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
@@ -172,6 +226,12 @@ def load_event(path: str) -> Dict[str, Any]:
     data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
     if "seeds" in data:
         data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+    # Ensure optional numeric fields exist
+    block_count = len(data.get("microblocks", []))
+    data.setdefault("seed_depths", [0] * block_count)
+    data.setdefault("penalties", [0] * block_count)
+    data.setdefault("rewards", [0.0] * block_count)
+    data.setdefault("refunds", [0.0] * block_count)
     validate_parent(data)
     return data
 
@@ -184,6 +244,9 @@ __all__ = [
     "normalize_statement",
     "create_event",
     "mark_mined",
+    "nesting_penalty",
+    "reward_for_depth",
+    "accept_mined_seed",
     "save_event",
     "load_event",
     "validate_parent",
