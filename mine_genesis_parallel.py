@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""Mine the Helix genesis event using real seed mining.
+"""Mine the Helix genesis event using parallel flat or nested mining.
 
-This script creates the genesis event from the statement:
+This script recreates the genesis event from the statement
 "Helix is to data what logic is to language."  Each microblock is three bytes
-long. Mining iterates through candidate seeds starting at ``b'\x00'`` and checks
-them against all unmined microblocks using the MiniHelix ``G`` function. When a
-seed reproduces a microblock it is recorded, the block is marked mined and
-removed from the queue.  Once all blocks are mined the full event is saved as
-``genesis.json`` and the reconstructed statement along with the computed
-``GENESIS_HASH`` is printed.
+long.  Mining now uses :func:`helix.miner.find_seed` which is capable of flat or
+nested searches.  Multiple worker processes are spawned for every microblock and
+the first successful seed halts all workers.  Mined seeds are written back to
+``genesis.json`` and the final statement along with ``GENESIS_HASH`` is printed.
 """
 
 from __future__ import annotations
 
 import json
 import hashlib
+import logging
+import multiprocessing as mp
+import time
 from pathlib import Path
-from typing import Iterator, List
+from typing import Tuple, Optional
 
-from helix.minihelix import G
+from helix.miner import find_seed
 
 try:
     from helix.event_manager import (
@@ -61,42 +62,75 @@ except ModuleNotFoundError:
 STATEMENT = "Helix is to data what logic is to language."
 MICROBLOCK_SIZE = 3
 GENESIS_FILE = "genesis.json"
-MAX_SEED_LEN = 3
+
+DEFAULT_MAX_DEPTH = 4
 
 
-def seed_space(max_len: int = MAX_SEED_LEN) -> Iterator[bytes]:
-    """Yield seeds sequentially from ``b'\x00'`` up to ``max_len`` bytes."""
-    length = 1
-    while length <= max_len:
-        for value in range(256 ** length):
-            yield value.to_bytes(length, "big")
-        length += 1
+def _worker(block: bytes, queue: mp.Queue, max_depth: int) -> None:
+    """Search ``block`` for a seed and put the result in ``queue``."""
+    result = find_seed(block, max_depth=max_depth)
+    if result is not None:
+        queue.put(result)
 
 
-def mine_event(event: dict) -> None:
-    """Mine all microblocks for ``event`` by searching for valid seeds."""
-    queue: List[int] = list(range(len(event["microblocks"])))
-    for seed in seed_space():
-        if not queue:
-            break
-        candidate = G(seed, MICROBLOCK_SIZE)
-        for idx in queue[:]:
-            if candidate == event["microblocks"][idx]:
-                event["seeds"][idx] = seed
-                mark_mined(event, idx)
-                queue.remove(idx)
+def mine_event(event: dict, *, max_depth: int = DEFAULT_MAX_DEPTH) -> None:
+    """Mine all microblocks for ``event`` using parallel workers."""
+
+    cpu_count = mp.cpu_count()
+    for idx, block in enumerate(event["microblocks"]):
+        if event["seeds"][idx] is not None:
+            continue
+
+        logging.info("Mining microblock %d", idx)
+        result_q: mp.Queue[Tuple[bytes, int]] = mp.Queue()
+        procs = [
+            mp.Process(
+                target=_worker,
+                args=(block, result_q, max_depth),
+            )
+            for _ in range(cpu_count)
+        ]
+        for p in procs:
+            p.start()
+
+        seed: Optional[bytes] = None
+        depth: int = 0
+
+        while any(p.is_alive() for p in procs):
+            try:
+                seed, depth = result_q.get_nowait()
                 break
+            except Exception:
+                time.sleep(0.05)
+
+        for p in procs:
+            if p.is_alive():
+                p.terminate()
+            p.join()
+
+        if seed is not None:
+            logging.info(
+                "  Found seed at depth %d: %s", depth, seed.hex()
+            )
+            event["seeds"][idx] = seed
+            event["seed_depths"][idx] = depth
+            mark_mined(event, idx)
+        else:
+            logging.warning("  No seed found for microblock %d", idx)
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     event = create_event(STATEMENT, microblock_size=MICROBLOCK_SIZE)
-    mine_event(event)
+    mine_event(event, max_depth=DEFAULT_MAX_DEPTH)
 
     statement = reassemble_microblocks(event["microblocks"])
 
     data = event.copy()
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in event["seeds"]]
+    data["seed_depths"] = event.get("seed_depths", [])
 
     with open(GENESIS_FILE, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)

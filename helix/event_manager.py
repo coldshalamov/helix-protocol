@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import hashlib
 import math
 import json
+import base64
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
@@ -8,7 +11,9 @@ if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
 
 from .signature_utils import load_keys, sign_data, verify_signature
+from nacl import signing
 from .config import GENESIS_HASH
+from . import nested_miner
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -23,6 +28,13 @@ def nesting_penalty(depth: int) -> int:
 
 def reward_for_depth(depth: int) -> float:
     return BASE_REWARD / depth
+
+
+def calculate_reward(base: float, depth: int) -> float:
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+    reward = base / depth
+    return round(reward, 4)
 
 
 def sha256(data: bytes) -> str:
@@ -58,7 +70,7 @@ def create_event(
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
     *,
     parent_id: str = GENESIS_HASH,
-    keyfile: Optional[str] = None,
+    private_key: Optional[str] = None,
     registry: Optional["StatementRegistry"] = None,
 ) -> Dict[str, Any]:
     microblocks, block_count, total_len = split_into_microblocks(
@@ -81,11 +93,13 @@ def create_event(
         "parent_id": parent_id,
     }
 
-    if keyfile is not None:
-        pub, priv = load_keys(keyfile)
-        signature = sign_data(repr(header).encode("utf-8"), priv)
-        header["originator_sig"] = signature
-        header["originator_pub"] = pub
+    originator_pub: Optional[str] = None
+    originator_sig: Optional[str] = None
+    if private_key is not None:
+        key_bytes = base64.b64decode(private_key)
+        signing_key = signing.SigningKey(key_bytes)
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
+        originator_sig = sign_data(statement.encode("utf-8"), private_key)
 
     event = {
         "header": header,
@@ -100,6 +114,9 @@ def create_event(
         "is_closed": False,
         "bets": {"YES": [], "NO": []},
     }
+    if originator_pub is not None:
+        event["originator_pub"] = originator_pub
+        event["originator_sig"] = originator_sig
     return event
 
 
@@ -112,7 +129,12 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int) -> float:
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+    seed = seed_chain[0]
+    depth = len(seed_chain)
+    block = event["microblocks"][index]
+    assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
+
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
     refund = 0.0
@@ -126,6 +148,10 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
+        if "miners" in event:
+            event["miners"][index] = miner
+        if "refund_miners" in event:
+            event["refund_miners"][index] = None
         mark_mined(event, index)
         return 0.0
 
@@ -144,10 +170,15 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed: bytes, depth: int
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
+        if "miners" in event:
+            old_miner = event["miners"][index]
+            event["miners"][index] = miner
+        else:
+            old_miner = None
+        if "refund_miners" in event:
+            event["refund_miners"][index] = old_miner
         event["refunds"][index] += refund
-        print(
-            f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}"
-        )
+        print(f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}")
 
     return refund
 
@@ -166,7 +197,6 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
 
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
-    """Verify the originator signature attached to ``event``."""
     header = event.get("header", {})
     signature = header.get("originator_sig")
     pubkey = header.get("originator_pub")
@@ -174,13 +204,25 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
     if signature is None or pubkey is None:
         return False
 
-    payload = {
-        k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}
-    }
+    payload = {k: v for k, v in header.items() if k not in {"originator_sig", "originator_pub"}}
     header_hash = sha256(repr(payload).encode("utf-8")).encode("utf-8")
 
     if not verify_signature(header_hash, signature, pubkey):
         raise ValueError("Invalid originator signature")
+
+    return True
+
+
+def verify_event_signature(event: Dict[str, Any]) -> bool:
+    signature = event.get("originator_sig")
+    pubkey = event.get("originator_pub")
+    statement = event.get("statement")
+
+    if signature is None or pubkey is None or statement is None:
+        return False
+
+    if not verify_signature(statement.encode("utf-8"), signature, pubkey):
+        raise ValueError("Invalid event signature")
 
     return True
 
@@ -217,9 +259,11 @@ __all__ = [
     "mark_mined",
     "nesting_penalty",
     "reward_for_depth",
+    "calculate_reward",
     "accept_mined_seed",
     "save_event",
     "verify_originator_signature",
+    "verify_event_signature",
     "load_event",
     "validate_parent",
 ]

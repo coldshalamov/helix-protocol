@@ -7,6 +7,8 @@ pytest.importorskip("nacl")
 
 from helix.helix_node import HelixNode, GossipMessageType, simulate_mining, find_seed, verify_seed
 from helix.gossip import LocalGossipNetwork
+from helix import betting_interface as bi
+from helix import signature_utils as su
 
 
 def test_full_lifecycle(tmp_path, monkeypatch):
@@ -35,12 +37,19 @@ def test_full_lifecycle(tmp_path, monkeypatch):
 
     assert evt_id in node_b.events
 
-    yes_bet = {"event_id": evt_id, "choice": "YES", "amount": 10, "pubkey": "user1"}
-    no_bet = {"event_id": evt_id, "choice": "NO", "amount": 5, "pubkey": "user2"}
-    node_a.events[evt_id]["bets"]["YES"].append(yes_bet)
-    node_b.events[evt_id]["bets"]["YES"].append(yes_bet)
-    node_a.events[evt_id]["bets"]["NO"].append(no_bet)
-    node_b.events[evt_id]["bets"]["NO"].append(no_bet)
+    pub1, priv1 = su.generate_keypair()
+    key1 = tmp_path / "k1.txt"
+    su.save_keys(str(key1), pub1, priv1)
+    pub2, priv2 = su.generate_keypair()
+    key2 = tmp_path / "k2.txt"
+    su.save_keys(str(key2), pub2, priv2)
+
+    yes_bet = bi.submit_bet(evt_id, "YES", 10, str(key1))
+    no_bet = bi.submit_bet(evt_id, "NO", 5, str(key2))
+    bi.record_bet(node_a.events[evt_id], yes_bet)
+    bi.record_bet(node_b.events[evt_id], yes_bet)
+    bi.record_bet(node_a.events[evt_id], no_bet)
+    bi.record_bet(node_b.events[evt_id], no_bet)
 
     node_a.finalize_event(event)
     time.sleep(0.1)
