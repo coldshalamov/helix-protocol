@@ -283,7 +283,8 @@ class HelixNode(GossipNode):
         yes_total = sum(b.get("amount", 0) for b in yes_bets)
         no_total = sum(b.get("amount", 0) for b in no_bets)
 
-        success = event.get("is_closed", False)
+        # Determine winning outcome based on total bet amounts
+        success = yes_total > no_total
         winners = yes_bets if success else no_bets
         winner_total = yes_total if success else no_total
 
