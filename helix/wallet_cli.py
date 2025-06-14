@@ -9,9 +9,14 @@ from .ledger import load_balances
 
 
 def cmd_wallet_create(args: argparse.Namespace) -> None:
-    pub, priv = signature_utils.generate_keypair()
-    signature_utils.save_keys(args.keyfile, pub, priv)
-    print(f"Created new keypair at {args.keyfile}")
+    key_path = Path(args.keyfile)
+    if key_path.exists():
+        pub, priv = signature_utils.load_keys(str(key_path))
+        print(f"Using existing keypair at {args.keyfile}")
+    else:
+        pub, priv = signature_utils.generate_keypair()
+        signature_utils.save_keys(str(key_path), pub, priv)
+        print(f"Created new keypair at {args.keyfile}")
     print(f"Public key: {pub}")
 
 
