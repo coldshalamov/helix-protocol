@@ -66,6 +66,11 @@ def create_event(
     )
     statement_id = sha256(statement.encode("utf-8"))
     if registry is not None:
+        if registry.has_id(statement_id):
+            print(
+                f"Duplicate statement_id {statement_id} already finalized; skipping"
+            )
+            raise ValueError("Duplicate statement")
         registry.check_and_add(statement)
 
     header = {
