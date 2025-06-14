@@ -20,8 +20,13 @@ class StatementRegistry:
         """Add ``statement`` if not already present else raise ``ValueError``."""
         h = self._hash_statement(statement)
         if h in self._hashes:
+            print(f"Duplicate statement detected: {h}")
             raise ValueError("Duplicate statement")
         self._hashes.add(h)
+
+    def has_id(self, statement_id: str) -> bool:
+        """Return ``True`` if ``statement_id`` is known."""
+        return statement_id in self._hashes
 
     def has(self, statement: str) -> bool:
         return self._hash_statement(statement) in self._hashes
