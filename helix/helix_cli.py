@@ -4,6 +4,7 @@ from pathlib import Path
 
 from . import event_manager
 from . import minihelix
+from . import miner
 from . import signature_utils
 from . import betting_interface
 from .ledger import load_balances
@@ -44,6 +45,29 @@ def cmd_submit_statement(args: argparse.Namespace) -> None:
     print(f"Saved to {path}")
 
 
+def cmd_mine_statement(args: argparse.Namespace) -> None:
+    """Mine ``args.text`` using :func:`miner.find_seed` and save the event."""
+    event = event_manager.create_event(args.text, normalize=args.normalize)
+    block_total = len(event["microblocks"])
+    for idx, block in enumerate(event["microblocks"], start=1):
+        print(f"Mining microblock {idx}/{block_total} ...")
+        seed = miner.find_seed(block)
+        if seed is None:
+            print(f"No seed found for block {idx - 1}")
+            continue
+        if not minihelix.verify_seed(seed, block):
+            print(f"Seed verification failed for block {idx - 1}")
+            continue
+        event["seeds"][idx - 1] = seed
+        event_manager.mark_mined(event, idx - 1)
+
+    path = event_manager.save_event(event, str(EVENTS_DIR))
+    statement = event_manager.reassemble_microblocks(event["microblocks"])
+    print(f"Statement ID: {event['header']['statement_id']}")
+    print(f"Saved to {path}")
+    print(f"Reassembled: {statement}")
+
+
 def cmd_show_balance(args: argparse.Namespace) -> None:
     pub, _ = signature_utils.load_keys(args.wallet)
     balances = load_balances(str(BALANCES_FILE))
@@ -72,6 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Normalize statement before hashing",
     )
     p_submit.set_defaults(func=cmd_submit_statement)
+
+    p_mine = sub.add_parser("mine-statement", help="Mine microblocks for a statement")
+    p_mine.add_argument("--text", required=True, help="Statement text")
+    p_mine.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Normalize statement before hashing",
+    )
+    p_mine.set_defaults(func=cmd_mine_statement)
 
     p_gen = sub.add_parser("generate-keys", help="Generate a keypair")
     p_gen.add_argument("--out", required=True, help="Output file for keys")
