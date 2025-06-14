@@ -149,7 +149,17 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data = event.copy()
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
-        data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+        serialized = []
+        for s in data["seeds"]:
+            if isinstance(s, dict):
+                seed_bytes = s.get("seed")
+                depth = s.get("depth", 1)
+                serialized.append({"seed": seed_bytes.hex() if isinstance(seed_bytes, bytes) else None, "depth": depth})
+            elif isinstance(s, bytes):
+                serialized.append(s.hex())
+            else:
+                serialized.append(None)
+        data["seeds"] = serialized
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
@@ -171,7 +181,18 @@ def load_event(path: str) -> Dict[str, Any]:
         data = json.load(f)
     data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
     if "seeds" in data:
-        data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+        deserialized = []
+        for s in data["seeds"]:
+            if isinstance(s, dict):
+                seed_hex = s.get("seed")
+                depth = s.get("depth", 1)
+                seed_bytes = bytes.fromhex(seed_hex) if isinstance(seed_hex, str) and seed_hex else None
+                deserialized.append({"seed": seed_bytes, "depth": depth})
+            elif isinstance(s, str) and s:
+                deserialized.append(bytes.fromhex(s))
+            else:
+                deserialized.append(None)
+        data["seeds"] = deserialized
     validate_parent(data)
     return data
 
