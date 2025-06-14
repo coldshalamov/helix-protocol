@@ -6,7 +6,6 @@ import os
 import queue
 import random
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, Generator
 
@@ -14,16 +13,14 @@ try:
     from . import event_manager
     from .signature_utils import verify_signature
     from .ledger import load_balances, save_balances
-    from .miner import find_seed
-    from .minihelix import verify_seed
+    from .minihelix import mine_seed as find_seed, verify_seed
     from .gossip import GossipNode, LocalGossipNetwork
 except ImportError:  # pragma: no cover - allow running as a script
     from helix import event_manager
     from helix.signature_utils import verify_signature
     from helix.ledger import load_balances, save_balances
-    from helix.miner import find_seed
-from helix.minihelix import verify_seed
-from helix.gossip import GossipNode, LocalGossipNetwork
+    from helix.minihelix import mine_seed as find_seed, verify_seed
+    from helix.gossip import GossipNode, LocalGossipNetwork
 
 # ----------------------------------------------------------------------------
 # Gossip message definitions
@@ -31,10 +28,7 @@ from helix.gossip import GossipNode, LocalGossipNetwork
 
 GossipMessage = Dict[str, Any]
 
-
 class GossipMessageType:
-    """Simple enumeration of gossip message types."""
-
     NEW_STATEMENT = "NEW_STATEMENT"
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     EVENT_FINALIZED = "EVENT_FINALIZED"
@@ -44,7 +38,6 @@ class GossipMessageType:
 # ----------------------------------------------------------------------------
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
-    """Return ``True`` if the event header signature is valid."""
     header = event.get("header", {}).copy()
     sig = header.pop("originator_sig", None)
     pub = header.pop("originator_pub", None)
@@ -53,43 +46,10 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
     return verify_signature(repr(header).encode("utf-8"), sig, pub)
 
 # ----------------------------------------------------------------------------
-# Helper functions and mocks
-# ----------------------------------------------------------------------------
-
-def submit_statement_queue() -> Generator[str, None, None]:
-    """Yield new statements submitted to the node.
-
-    In a real deployment this would interface with a network queue or RPC
-    layer. For now it simply yields a single hardcoded statement.
-    """
-    statement = (
-        "The James Webb telescope detected complex organic molecules in interstellar space."
-    )
-    yield statement
-
-
-def simulate_mining(block_index: int) -> None:
-    """Mock the MiniHelix GPoW process for a single microblock."""
-    # Future implementation will search for a seed that regenerates the microblock
-    # using the MiniHelix algorithm. Here we just sleep for a short random time
-    # to emulate work being done.
-    time.sleep(random.uniform(0.5, 1.5))
-
-
-def auto_resolve_bets(event: Dict[str, Any]) -> None:
-    """Deprecated helper kept for backward compatibility."""
-    logging.info(
-        "Auto resolving bets for event %s (mocked payout)",
-        event["header"]["statement_id"],
-    )
-
-# ----------------------------------------------------------------------------
 # Core node logic
 # ----------------------------------------------------------------------------
 
 class HelixNode(GossipNode):
-    """A basic Helix protocol node that mines incoming statements."""
-
     def __init__(
         self,
         microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
@@ -116,30 +76,23 @@ class HelixNode(GossipNode):
         self.load_state()
         self.update_known_peers()
 
-    # ------------------------------------------------------------------
-    # Persistence helpers
-    # ------------------------------------------------------------------
     def update_known_peers(self) -> None:
-        """Refresh the set of known peers from the network."""
         try:
             self.known_peers = set(self.network._nodes.keys())
             self.save_state()
-        except Exception as exc:  # pragma: no cover - best effort logging
+        except Exception as exc:
             print(f"Failed to update peers: {exc}")
 
     def load_state(self) -> None:
-        """Load events and peers from disk."""
-        # Load peers
         if os.path.exists(self.peers_file):
             try:
                 with open(self.peers_file, "r", encoding="utf-8") as fh:
                     peers = json.load(fh)
                     if isinstance(peers, list):
                         self.known_peers = set(peers)
-            except Exception as exc:  # pragma: no cover - best effort
+            except Exception as exc:
                 print(f"Error loading peers: {exc}")
 
-        # Load events
         if os.path.isdir(self.events_dir):
             for fname in os.listdir(self.events_dir):
                 if not fname.endswith(".json"):
@@ -149,36 +102,28 @@ class HelixNode(GossipNode):
                     event = event_manager.load_event(path)
                     evt_id = event["header"]["statement_id"]
                     self.events[evt_id] = event
-                except Exception as exc:  # pragma: no cover - best effort
+                except Exception as exc:
                     print(f"Failed to load event {fname}: {exc}")
 
-        # Resume mining for incomplete events
         for evt in list(self.events.values()):
             if not evt.get("is_closed"):
                 threading.Thread(target=self.mine_event, args=(evt,)).start()
 
     def save_state(self) -> None:
-        """Persist known peers and events to disk."""
         try:
             with open(self.peers_file, "w", encoding="utf-8") as fh:
                 json.dump(list(self.known_peers), fh, indent=2)
-        except Exception as exc:  # pragma: no cover - best effort
+        except Exception as exc:
             print(f"Error saving peers: {exc}")
 
         for event in self.events.values():
             try:
                 event_manager.save_event(event, self.events_dir)
-            except Exception as exc:  # pragma: no cover - best effort
-                print(
-                    f"Failed to save event {event['header']['statement_id']}: {exc}"
-                )
+            except Exception as exc:
+                print(f"Failed to save event {event['header']['statement_id']}: {exc}")
 
-    # ------------------------------------------------------------------
-    # Event lifecycle
-    # ------------------------------------------------------------------
     def listen_for_statements(self) -> Generator[str, None, None]:
-        """Yield new statements awaiting processing."""
-        yield from submit_statement_queue()
+        yield "The James Webb telescope detected complex organic molecules in interstellar space."
 
     def create_event(self, statement: str) -> Dict[str, Any]:
         self.logger.info("Creating event for statement: %s", statement)
@@ -192,13 +137,11 @@ class HelixNode(GossipNode):
         return event_manager.create_event(statement, self.microblock_size)
 
     def mine_microblock(self, event: Dict[str, Any], index: int) -> None:
-        """Mine a single microblock and update the event state."""
         miner_id = random.randint(1000, 9999)
         self.logger.info("Miner %s started microblock %d", miner_id, index)
-        simulate_mining(index)
         target = event["microblocks"][index]
-        seed = find_seed(target, attempts=10000)  # simplified search
-        if seed is not None:
+        seed = find_seed(target, max_attempts=1000000)
+        if seed is not None and verify_seed(seed, target):
             event["seeds"][index] = seed
             msg = {
                 "type": GossipMessageType.MINED_MICROBLOCK,
@@ -207,19 +150,16 @@ class HelixNode(GossipNode):
                 "seed": seed.hex(),
             }
             self.send_message(msg)
-        event_manager.mark_mined(event, index)
+            event_manager.mark_mined(event, index)
+            status = "mined"
+        else:
+            status = "failed"
+        self.logger.info("Microblock %d %s by miner %s", index, status, miner_id)
         mined = sum(1 for m in event["mined_status"] if m)
         total = len(event["microblocks"])
-        self.logger.info(
-            "Miner %s finished microblock %d (%d/%d mined)",
-            miner_id,
-            index,
-            mined,
-            total,
-        )
+        self.logger.info("Progress: %d/%d mined", mined, total)
 
     def mine_event(self, event: Dict[str, Any]) -> None:
-        """Verify originator signature and mine all microblocks for an event."""
         if not verify_originator_signature(event):
             self.logger.error("Invalid originator signature. Event rejected.")
             return
@@ -248,11 +188,7 @@ class HelixNode(GossipNode):
         else:
             self.logger.warning("Event did not close properly")
 
-    # ------------------------------------------------------------------
-    # Gossip message handling
-    # ------------------------------------------------------------------
     def handle_message(self, message: GossipMessage) -> None:
-        """Process an incoming gossip message."""
         try:
             mtype = message.get("type")
             if mtype == GossipMessageType.NEW_STATEMENT:
@@ -271,11 +207,7 @@ class HelixNode(GossipNode):
                 evt_id = message.get("event_id")
                 index = message.get("index")
                 seed_hex = message.get("seed")
-                if (
-                    evt_id not in self.events
-                    or seed_hex is None
-                    or index is None
-                ):
+                if evt_id not in self.events or seed_hex is None or index is None:
                     return
                 event = self.events[evt_id]
                 if index < 0 or index >= len(event["microblocks"]):
@@ -285,24 +217,20 @@ class HelixNode(GossipNode):
                 seed = bytes.fromhex(seed_hex)
                 block = event["microblocks"][index]
                 if verify_seed(seed, block):
-                    print(
-                        f"Node {self.node_id}: verified microblock {index} for {evt_id}"
-                    )
+                    print(f"Node {self.node_id}: verified microblock {index} for {evt_id}")
                     event["seeds"][index] = seed
                     event_manager.mark_mined(event, index)
                     self.save_state()
-                    # rebroadcast valid proof
                     self.send_message(message)
 
             elif mtype == GossipMessageType.EVENT_FINALIZED:
                 evt_id = message.get("event_id")
                 if evt_id in self.events:
                     print(f"Node {self.node_id}: event {evt_id} finalized")
-        except Exception as exc:  # pragma: no cover - best effort
+        except Exception as exc:
             print(f"Error handling message: {exc}")
 
     def _message_loop(self) -> None:
-        """Background thread to process incoming gossip messages."""
         while True:
             try:
                 msg = self.receive(timeout=1)
@@ -310,11 +238,7 @@ class HelixNode(GossipNode):
                 continue
             self.handle_message(msg)
 
-    # ------------------------------------------------------------------
-    # Bet resolution
-    # ------------------------------------------------------------------
     def resolve_bets(self, event: Dict[str, Any]) -> None:
-        """Distribute betting pool to winners and originator."""
         yes_bets = event.get("bets", {}).get("YES", [])
         no_bets = event.get("bets", {}).get("NO", [])
         yes_total = sum(b.get("amount", 0) for b in yes_bets)
@@ -340,7 +264,6 @@ class HelixNode(GossipNode):
         save_balances(self.balances, self.balances_file)
 
     def run(self) -> None:
-        """Main execution loop for the node."""
         listener = threading.Thread(target=self._message_loop, daemon=True)
         listener.start()
 
@@ -354,7 +277,6 @@ class HelixNode(GossipNode):
             self.save_state()
             self.logger.info("Final event state: %s", event)
 
-
 # ----------------------------------------------------------------------------
 # Entry point
 # ----------------------------------------------------------------------------
@@ -366,7 +288,6 @@ def main() -> None:
     )
     node = HelixNode()
     node.run()
-
 
 if __name__ == "__main__":
     main()
