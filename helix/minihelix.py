@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Optional
 
 
 DEFAULT_MICROBLOCK_SIZE = 8
@@ -19,7 +18,7 @@ def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
     return hashlib.sha256(data).digest()[:N]
 
 
-def mine_seed(target_block: bytes, max_attempts: int | None = None) -> Optional[bytes]:
+def mine_seed(target_block: bytes, max_attempts: int | None = None) -> bytes | None:
     """Brute-force search for a seed that regenerates ``target_block``."""
     N = len(target_block)
     attempt = 0

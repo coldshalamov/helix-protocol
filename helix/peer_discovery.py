@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from .gossip import GossipNode
 
@@ -34,7 +34,7 @@ class PeerDiscovery:
         self.ping_interval = ping_interval
         self.known_peers: set[str] = set()
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self.load_peers()
 
     # persistence ---------------------------------------------------------

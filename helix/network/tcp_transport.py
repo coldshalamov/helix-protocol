@@ -6,7 +6,7 @@ import json
 import socket
 import threading
 import queue
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from .peer import Peer
 from .transport import GossipTransport
@@ -51,7 +51,7 @@ class TCPGossipTransport(GossipTransport):
         with socket.create_connection((peer.host, peer.port)) as sock:
             sock.sendall(data)
 
-    def receive(self, timeout: Optional[float] = None) -> tuple[Peer, Dict[str, Any]]:
+    def receive(self, timeout: float | None = None) -> tuple[Peer, Dict[str, Any]]:
         return self._recv_queue.get(timeout=timeout)
 
     def add_peer(self, peer: Peer) -> None:
