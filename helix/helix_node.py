@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import event_manager, minihelix
+from . import event_manager, minihelix, nested_miner
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances
 
@@ -158,6 +158,7 @@ class HelixNode(GossipNode):
         network: LocalGossipNetwork | None = None,
         microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
         genesis_file: str = "genesis.json",
+        max_nested_depth: int = 3,
     ) -> None:
         if network is None:
             network = LocalGossipNetwork()
@@ -166,6 +167,7 @@ class HelixNode(GossipNode):
         self.balances_file = balances_file
         self.microblock_size = microblock_size
         self.genesis_file = genesis_file
+        self.max_nested_depth = max_nested_depth
         self.genesis = self._load_genesis(genesis_file)
         self.events: Dict[str, Dict[str, Any]] = {}
         self.balances: Dict[str, int] = {}
@@ -212,14 +214,48 @@ class HelixNode(GossipNode):
         self.events[evt_id] = event
 
     def mine_event(self, event: dict) -> None:
+        evt_id = event["header"]["statement_id"]
         for idx, block in enumerate(event["microblocks"]):
+            if event.get("is_closed"):
+                break
             if event["seeds"][idx]:
                 continue
             simulate_mining(idx)
+            best_seed: Optional[bytes] = None
+            best_depth = 0
+
             seed = find_seed(block)
             if seed and verify_seed(seed, block):
-                event["seeds"][idx] = seed
+                best_seed = seed
+                best_depth = 1
+
+            for depth in range(2, self.max_nested_depth + 1):
+                if best_seed is not None and best_depth <= depth:
+                    break
+                result = nested_miner.find_nested_seed(block, max_depth=depth)
+                if result:
+                    chain, found_depth = result
+                    candidate = chain[0]
+                    if (
+                        best_seed is None
+                        or found_depth < best_depth
+                        or (found_depth == best_depth and len(candidate) < len(best_seed))
+                    ):
+                        best_seed = candidate
+                        best_depth = found_depth
+
+            if best_seed is not None:
+                event["seeds"][idx] = {"seed": best_seed, "depth": best_depth}
                 event_manager.mark_mined(event, idx)
+                if event.get("is_closed"):
+                    self.send_message(
+                        {
+                            "type": GossipMessageType.FINALIZED,
+                            "event_id": evt_id,
+                            "result": True,
+                        }
+                    )
+                    break
 
     def finalize_event(self, event: dict) -> None:
         for bet in event.get("bets", {}).get("YES", []):
@@ -228,7 +264,14 @@ class HelixNode(GossipNode):
             if pub:
                 self.balances[pub] = self.balances.get(pub, 0) + amt
         self.save_state()
-        self.send_message({"type": GossipMessageType.FINALIZED, "balances": self.balances})
+        self.send_message(
+            {
+                "type": GossipMessageType.FINALIZED,
+                "event_id": event["header"]["statement_id"],
+                "result": True,
+                "balances": self.balances,
+            }
+        )
 
     def _handle_message(self, message: Dict[str, Any]) -> None:
         msg_type = message.get("type")
@@ -241,6 +284,12 @@ class HelixNode(GossipNode):
                 except ValueError:
                     pass
         elif msg_type == GossipMessageType.FINALIZED:
+            event_id = message.get("event_id")
+            result = message.get("result")
+            if event_id and event_id in self.events:
+                self.events[event_id]["is_closed"] = True
+                if result is not None:
+                    self.events[event_id]["result"] = result
             balances = message.get("balances")
             if isinstance(balances, dict):
                 self.balances = balances
