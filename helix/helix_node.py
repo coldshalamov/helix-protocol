@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import random
 import threading
@@ -6,8 +8,23 @@ from typing import Any, Dict, Generator
 
 try:
     from . import event_manager
+    from .signature_utils import verify_signature
 except ImportError:  # pragma: no cover - allow running as a script
     import event_manager
+    from signature_utils import verify_signature
+
+# ----------------------------------------------------------------------------
+# Signature Verification
+# ----------------------------------------------------------------------------
+
+def verify_originator_signature(event: Dict[str, Any]) -> bool:
+    """Return ``True`` if the event header signature is valid."""
+    header = event.get("header", {}).copy()
+    sig = header.pop("originator_sig", None)
+    pub = header.pop("originator_pub", None)
+    if not sig or not pub:
+        return False
+    return verify_signature(repr(header).encode("utf-8"), sig, pub)
 
 # ----------------------------------------------------------------------------
 # Helper functions and mocks
@@ -80,14 +97,17 @@ class HelixNode:
         )
 
     def mine_event(self, event: Dict[str, Any]) -> None:
-        """Spawn threads to mine all microblocks for an event."""
+        """Verify originator signature and mine all microblocks for an event."""
+        if not verify_originator_signature(event):
+            self.logger.error("Invalid originator signature. Event rejected.")
+            return
+
         threads = []
         for i in range(event["header"]["block_count"]):
             t = threading.Thread(target=self.mine_microblock, args=(event, i))
             t.start()
             threads.append(t)
 
-        # Wait for all mining threads to complete
         for t in threads:
             t.join()
 
