@@ -156,8 +156,9 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
         for idx, (enc, block) in enumerate(zip(seeds, blocks)):
             if not nested_miner.verify_nested_seed(enc, block):
                 raise ValueError(f"invalid seed chain for microblock {idx}")
-            depth, seed_len = nested_miner.decode_header(enc[0])
-            offset = 1
+            depth = enc[0]
+            seed_len = enc[1]
+            offset = 2
             seed = enc[offset : offset + seed_len]
             offset += seed_len
             current = seed

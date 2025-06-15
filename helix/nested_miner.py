@@ -5,38 +5,11 @@ from __future__ import annotations
 from .minihelix import G, mine_seed
 
 
-def encode_header(depth: int, seed_len: int) -> bytes:
-    """Return a one byte header encoding ``depth`` and ``seed_len``.
-
-    The high nibble stores ``depth`` and the low nibble stores ``seed_len``.
-    Both must be in the range 1..15.
-    """
-    if not (1 <= depth <= 15):
-        raise ValueError("depth must be 1..15")
-    if not (1 <= seed_len <= 15):
-        raise ValueError("seed_len must be 1..15")
-    return bytes([(depth << 4) | seed_len])
-
-
-def decode_header(value: int | bytes) -> tuple[int, int]:
-    """Decode a header produced by :func:`encode_header`.
-
-    ``value`` may be the raw integer or a one-byte ``bytes`` object.
-    Returns (depth, seed_len).
-    """
-    if isinstance(value, (bytes, bytearray)):
-        if len(value) != 1:
-            raise ValueError("header must be a single byte")
-        value = value[0]
-    depth = (value >> 4) & 0x0F
-    seed_len = value & 0x0F
-    return depth, seed_len
-
-
 def _decode_chain(encoded: bytes, target_size: int) -> list[bytes]:
     """Convert encoded seed sequence into list of seeds for replay verification."""
-    depth, seed_len = decode_header(encoded[0])
-    offset = 1
+    depth = encoded[0]
+    seed_len = encoded[1]
+    offset = 2
     first = encoded[offset : offset + seed_len]
     offset += seed_len
     chain = [first]
@@ -81,7 +54,7 @@ def find_nested_seed(
         for depth in range(1, max_depth + 1):
             current = G(current, N)
             if current == target_block:
-                header = encode_header(depth, len(seed))
+                header = bytes([depth, len(seed)])
                 return header + seed + b"".join(intermediates), depth
             if depth < max_depth:
                 intermediates.append(current)
@@ -97,13 +70,14 @@ def verify_nested_seed(seed_chain: list[bytes] | bytes, target_block: bytes) -> 
     if isinstance(seed_chain, (bytes, bytearray)):
         if not seed_chain:
             return False
-        depth, seed_len = decode_header(seed_chain[0])
+        depth = seed_chain[0]
+        seed_len = seed_chain[1]
         N = len(target_block)
-        expected_len = 1 + seed_len + (depth - 1) * N
+        expected_len = 2 + seed_len + (depth - 1) * N
         if len(seed_chain) != expected_len:
             return False
 
-        offset = 1
+        offset = 2
         seed = seed_chain[offset : offset + seed_len]
         if len(seed) == 0 or len(seed) > N:
             return False
@@ -152,8 +126,8 @@ def hybrid_mine(
     )
     if result is not None:
         encoded, depth = result
-        seed_len = decode_header(encoded[0])[1]
-        return encoded[1 : 1 + seed_len], depth
+        seed_len = encoded[1]
+        return encoded[2 : 2 + seed_len], depth
 
     seed = mine_seed(target_block, max_attempts=attempts)
     if seed is not None:
@@ -162,8 +136,6 @@ def hybrid_mine(
 
 
 __all__ = [
-    "encode_header",
-    "decode_header",
     "find_nested_seed",
     "verify_nested_seed",
     "hybrid_mine",

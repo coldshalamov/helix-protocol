@@ -48,12 +48,7 @@ def test_find_nested_seed_simple():
     encoded, depth = result
     print("Returned chain", encoded, "depth", depth)
     assert depth == 3, f"expected depth 3, got {depth}"
-    expected = (
-        nested_miner.encode_header(3, len(base_seed))
-        + base_seed
-        + inter1
-        + inter2
-    )
+    expected = bytes([3, len(base_seed)]) + base_seed + inter1 + inter2
     assert encoded == expected, "incorrect seed encoding"
     assert nested_miner.verify_nested_seed(encoded, block), "seed chain failed verification"
     print("Nested seed search SUCCESS")

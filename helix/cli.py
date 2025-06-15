@@ -114,8 +114,8 @@ def cmd_mine(args: argparse.Namespace) -> None:
             if not nested_miner.verify_nested_seed(encoded, block):
                 continue
             event_manager.accept_mined_seed(event, idx, encoded)
-            _, seed_len = nested_miner.decode_header(encoded[0])
-            seed = encoded[1 : 1 + seed_len]
+            seed_len = encoded[1]
+            seed = encoded[2 : 2 + seed_len]
             print(
                 f"\u2714 Block {idx} mined at depth {depth} with seed {seed.hex()}"
             )
