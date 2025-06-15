@@ -1,0 +1,71 @@
+{
+  "header": {
+    "statement_id": "f7c3745c9544aa6f82c6b46cf3365eb4b25505517de17a6c7681de110ba85fca",
+    "original_length": 43,
+    "microblock_size": 8,
+    "block_count": 6,
+    "parent_id": "a6dc431bd631e98973a6a15baa8a27a21b2f60ef9193fc9954f4141eda3d40bc"
+  },
+  "statement": "Helix is to data what logic is to language.",
+  "microblocks": [
+    "48656c6978206973",
+    "20746f2064617461",
+    "2077686174206c6f",
+    "6769632069732074",
+    "6f206c616e677561",
+    "67652e0000000000"
+  ],
+  "mined_status": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "seeds": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "seed_depths": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "penalties": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "rewards": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "refunds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "is_closed": false,
+  "bets": {
+    "YES": [],
+    "NO": []
+  }
+}
