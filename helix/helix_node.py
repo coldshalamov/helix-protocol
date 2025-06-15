@@ -214,7 +214,10 @@ class HelixNode(GossipNode):
             else:
                 result = nested_miner.find_nested_seed(block, max_depth=self.max_nested_depth)
                 if result:
-                    encoded, _ = result
+                    if isinstance(result, tuple):
+                        encoded, _ = result
+                    else:
+                        encoded = bytes(result)
                     chain = nested_miner._decode_chain(encoded, len(block))
                     if nested_miner.verify_nested_seed(chain, block):
                         seed_chain = chain
