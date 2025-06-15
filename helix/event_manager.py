@@ -149,6 +149,30 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
     Returns a mapping of participant pubkeys to payout amounts which is also
     stored in ``event['payouts']``.
     """
+    seeds = event.get("seeds", [])
+    blocks = event.get("microblocks", [])
+    if len(seeds) == len(blocks) and all(seeds):
+        recombined: List[bytes] = []
+        for idx, (enc, block) in enumerate(zip(seeds, blocks)):
+            if not nested_miner.verify_nested_seed(enc, block):
+                raise ValueError(f"invalid seed chain for microblock {idx}")
+            depth, seed_len = nested_miner.decode_header(enc[0])
+            offset = 1
+            seed = enc[offset : offset + seed_len]
+            offset += seed_len
+            current = seed
+            for _ in range(1, depth):
+                next_seed = enc[offset : offset + len(block)]
+                offset += len(block)
+                current = nested_miner.G(current, len(block))
+                current = next_seed
+            final_block = nested_miner.G(current, len(block))
+            recombined.append(final_block)
+        statement = reassemble_microblocks(recombined)
+        digest = sha256(statement.encode("utf-8"))
+        if digest != event.get("header", {}).get("statement_id"):
+            raise ValueError("final statement hash mismatch")
+
     yes_raw = event.get("bets", {}).get("YES", [])
     no_raw = event.get("bets", {}).get("NO", [])
 
