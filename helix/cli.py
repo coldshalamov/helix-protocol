@@ -1,4 +1,3 @@
-```python
 import argparse
 import json
 import hashlib
@@ -95,7 +94,14 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("token-stats", help="Show total token supply").set_defaults(func=cmd_token_stats)
 
-    p_remine = sub.add_parser("remine-microblock", help="Retry mining a single microblock")
+    p_remine = sub.add_parser(
+        "remine-microblock",
+        help="Retry mining a single microblock",
+    )
     p_remine.add_argument("--event-id", required=True, help="Event identifier")
     p_remine.add_argument("--index", type=int, required=True, help="Block index")
-    p_remine.add_argument("--force", action="store_true", help="Replace exi_
+    p_remine.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing microblock with newly mined one",
+    )
