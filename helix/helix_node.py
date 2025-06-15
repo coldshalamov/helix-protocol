@@ -81,7 +81,7 @@ class HelixNode(GossipNode):
         self.events_dir.mkdir(parents=True, exist_ok=True)
         self.balances_file = str(balances_file)
         if chain_file is None:
-            chain_file = str(Path(balances_file).parent / "chain.json")
+            chain_file = str(Path(balances_file).parent / "blockchain.jsonl")
         self.chain_file = str(chain_file)
         self.microblock_size = microblock_size
         self.max_nested_depth = max_nested_depth
@@ -145,6 +145,26 @@ class HelixNode(GossipNode):
     def save_state(self) -> None:
         for event in self.events.values():
             event_manager.save_event(event, str(self.events_dir))
+        save_balances(self.balances, self.balances_file)
+
+    def recover_from_chain(self) -> None:
+        self.balances = {}
+        self.chain = blockchain.load_chain(self.chain_file)
+        for block in self.chain:
+            evt_id = block.get("event_id") or (block.get("event_ids") or [None])[0]
+            if not evt_id:
+                continue
+            event = self.events.get(evt_id)
+            if event is None:
+                path = self.events_dir / f"{evt_id}.json"
+                if not path.exists():
+                    continue
+                try:
+                    event = event_manager.load_event(str(path))
+                    self.import_event(event)
+                except Exception:
+                    continue
+            apply_mining_results(event, self.balances)
         save_balances(self.balances, self.balances_file)
 
     def _send(self, message: Dict[str, Any]) -> None:
@@ -240,12 +260,12 @@ class HelixNode(GossipNode):
             self.submit_seed(evt_id, idx, seed_chain, proof)
 
         if all(event["mined_status"]) and not event.get("finalized"):
-            event_manager.finalize_event(event, node_id=self.node_id)
-            self.finalize_event(event)
+            event_manager.finalize_event(event, node_id=self.node_id, chain_file=self.chain_file)
+            self.finalize_event(event, append_chain=False)
 
         event_manager.save_event(event, str(self.events_dir))
 
-    def finalize_event(self, event: Dict[str, Any]) -> None:
+    def finalize_event(self, event: Dict[str, Any], *, append_chain: bool = False) -> None:
         if not event.get("is_closed") or event.get("finalized"):
             return
         for bet in event.get("bets", {}).get("YES", []):
@@ -259,6 +279,15 @@ class HelixNode(GossipNode):
         update_total_supply(sum(rewards) + sum(refunds))
         save_balances(self.balances, self.balances_file)
         event_manager.save_event(event, str(self.events_dir))
+        if append_chain:
+            block = {
+                "parent_id": blockchain.get_chain_tip(self.chain_file),
+                "event_id": event["header"]["statement_id"],
+                "timestamp": time.time(),
+                "miner": self.node_id,
+            }
+            blockchain.append_block(block, self.chain_file)
+            self.chain.append(block)
         event["finalized"] = True
         self._send({"type": GossipMessageType.FINALIZED, "event_id": event["header"]["statement_id"]})
 
@@ -322,12 +351,12 @@ class HelixNode(GossipNode):
             except Exception:
                 return
             if event.get("is_closed"):
-                self.finalize_event(event)
+                self.finalize_event(event, append_chain=True)
         elif msg_type == GossipMessageType.FINALIZED:
             evt_id = message.get("event_id")
             if evt_id in self.events:
                 self.events[evt_id]["is_closed"] = True
-                self.finalize_event(self.events[evt_id])
+                self.finalize_event(self.events[evt_id], append_chain=True)
 
     def _message_loop(self) -> None:
         while True:
@@ -355,5 +384,24 @@ __all__ = [
     "find_seed",
     "verify_seed",
     "verify_statement_id",
+    "recover_from_chain",
 ]
-```
+
+if __name__ == "__main__":  # pragma: no cover - CLI runtime
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="helix-node")
+    parser.add_argument("--events-dir", default="data/events", help="Event storage directory")
+    parser.add_argument("--balances-file", default="data/balances.json", help="Wallet balances file")
+    parser.add_argument("--chain-file", help="Blockchain JSONL file")
+    parser.add_argument("--recover", action="store_true", help="Rebuild state from chain before starting")
+    args = parser.parse_args()
+
+    node = HelixNode(
+        events_dir=args.events_dir,
+        balances_file=args.balances_file,
+        chain_file=args.chain_file,
+    )
+    if args.recover:
+        node.recover_from_chain()
+    node.run()
