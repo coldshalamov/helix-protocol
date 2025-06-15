@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import event_manager, minihelix, nested_miner, signature_utils
+from . import event_manager, minihelix, nested_miner, signature_utils, merkle
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances, apply_mining_results
 from .gossip import GossipNode, LocalGossipNetwork
@@ -129,6 +129,33 @@ class HelixNode(GossipNode):
         self._send({"type": GossipMessageType.NEW_EVENT, "event": event})
         return event
 
+    def submit_seed(
+        self,
+        event_id: str,
+        index: int,
+        encoded_seed: bytes,
+        merkle_proof: merkle.MerkleProof,
+    ) -> None:
+        depth, seed_len = nested_miner.decode_header(encoded_seed[0])
+        message = {
+            "type": GossipMessageType.MINED_MICROBLOCK,
+            "event_id": event_id,
+            "index": index,
+            "seed": encoded_seed[1 : 1 + seed_len].hex(),
+            "depth": depth,
+            "merkle_proof": {
+                "siblings": [s.hex() for s in merkle_proof.siblings],
+                "index": merkle_proof.index,
+            },
+        }
+        if self.public_key and self.private_key:
+            payload = f"{event_id}:{index}:{encoded_seed[1 : 1 + seed_len].hex()}:{depth}".encode(
+                "utf-8"
+            )
+            message["signature"] = signature_utils.sign_data(payload, self.private_key)
+            message["pubkey"] = self.public_key
+        self._send(message)
+
     def mine_event(self, event: Dict[str, Any]) -> None:
         evt_id = event["header"]["statement_id"]
         for idx, block in enumerate(event["microblocks"]):
@@ -151,18 +178,8 @@ class HelixNode(GossipNode):
             depth, seed_len = nested_miner.decode_header(encoded[0])
             event_manager.accept_mined_seed(event, idx, encoded, miner=self.node_id)
 
-            message = {
-                "type": GossipMessageType.MINED_MICROBLOCK,
-                "event_id": evt_id,
-                "index": idx,
-                "seed": encoded[1 : 1 + seed_len].hex(),
-                "depth": depth,
-            }
-            if self.public_key and self.private_key:
-                payload = f"{evt_id}:{idx}:{encoded[1 : 1 + seed_len].hex()}:{depth}".encode("utf-8")
-                message["signature"] = signature_utils.sign_data(payload, self.private_key)
-                message["pubkey"] = self.public_key
-            self._send(message)
+            proof = merkle.build_merkle_proof(event["microblocks"], idx)
+            self.submit_seed(evt_id, idx, encoded, proof)
 
         if event.get("is_closed"):
             self.finalize_event(event)
@@ -198,6 +215,7 @@ class HelixNode(GossipNode):
             depth = int(message.get("depth", 1))
             pub = message.get("pubkey")
             sig = message.get("signature")
+            _proof = message.get("merkle_proof")
             if evt_id not in self.events:
                 return
             event = self.events[evt_id]
