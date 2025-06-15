@@ -13,23 +13,25 @@ def test_verify_nested_seed():
     assert nested_miner.verify_nested_seed(chain, target)
 
 
-def test_find_nested_seed_deterministic(monkeypatch):
+def test_find_nested_seed_deterministic():
     N = 8
     base_seed = b"abc"
     intermediate = minihelix.G(base_seed, N)
     target = minihelix.G(intermediate, N)
 
-    def fake_randint(a, b):
-        return len(base_seed)
+    # Calculate the enumeration index for the chosen seed
+    start_nonce = 0
+    for length in range(1, N):
+        count = 256 ** length
+        if length < len(base_seed):
+            start_nonce += count
+        elif length == len(base_seed):
+            start_nonce += int.from_bytes(base_seed, "big")
+            break
 
-    def fake_urandom(n):
-        assert n == len(base_seed)
-        return base_seed
-
-    monkeypatch.setattr(nested_miner.random, "randint", fake_randint)
-    monkeypatch.setattr(nested_miner.os, "urandom", fake_urandom)
-
-    result = nested_miner.find_nested_seed(target, max_depth=2, attempts=1)
+    result = nested_miner.find_nested_seed(
+        target, max_depth=2, start_nonce=start_nonce, attempts=1
+    )
     assert result is not None
     chain, depth = result
     assert depth == 2
