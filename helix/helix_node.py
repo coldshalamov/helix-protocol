@@ -147,23 +147,22 @@ class HelixNode(GossipNode):
         self,
         event_id: str,
         index: int,
-        encoded_seed: bytes,
+        seed_chain: list[bytes],
         merkle_proof: merkle.MerkleProof,
     ) -> None:
-        depth, seed_len = nested_miner.decode_header(encoded_seed[0])
+        seed = seed_chain[0]
         message = {
             "type": GossipMessageType.MINED_MICROBLOCK,
             "event_id": event_id,
             "index": index,
-            "seed": encoded_seed[1 : 1 + seed_len].hex(),
-            "depth": depth,
+            "seed": seed.hex(),
             "merkle_proof": {
                 "siblings": [s.hex() for s in merkle_proof.siblings],
                 "index": merkle_proof.index,
             },
         }
         if self.public_key and self.private_key:
-            payload = f"{event_id}:{index}:{encoded_seed[1 : 1 + seed_len].hex()}:{depth}".encode("utf-8")
+            payload = f"{event_id}:{index}:{seed.hex()}".encode("utf-8")
             message["signature"] = signature_utils.sign_data(payload, self.private_key)
             message["pubkey"] = self.public_key
         self._send(message)
@@ -175,23 +174,34 @@ class HelixNode(GossipNode):
                 continue
             simulate_mining(idx)
             seed = find_seed(block)
-            encoded: Optional[bytes] = None
+            seed_chain: Optional[list[bytes]] = None
             if seed and verify_seed(seed, block):
-                encoded = nested_miner.encode_header(1, len(seed)) + seed
+                seed_chain = [seed]
             else:
                 result = nested_miner.find_nested_seed(block, max_depth=self.max_nested_depth)
                 if result:
-                    encoded, _ = result
-                    if not nested_miner.verify_nested_seed(encoded, block):
-                        encoded = None
-            if encoded is None:
+                    encoded, depth = result
+                    N = len(block)
+                    seed_len = len(encoded) - 1 - (depth - 1) * N
+                    first = encoded[1 : 1 + seed_len]
+                    chain = [first]
+                    current = first
+                    for _ in range(1, depth):
+                        current = minihelix.G(current, N)
+                        chain.append(current)
+                    if nested_miner.verify_nested_seed(chain, block):
+                        seed_chain = chain
+            if seed_chain is None:
                 continue
 
-            depth, _ = nested_miner.decode_header(encoded[0])
+            depth = len(seed_chain)
+            header_byte = (depth << 4) | len(seed_chain[0])
+            encoded = bytes([header_byte]) + b"".join(seed_chain)
+
             event_manager.accept_mined_seed(event, idx, encoded, miner=self.node_id)
 
             proof = merkle.build_merkle_proof(event["microblocks"], idx)
-            self.submit_seed(evt_id, idx, encoded, proof)
+            self.submit_seed(evt_id, idx, seed_chain, proof)
 
         if event.get("is_closed"):
             self.finalize_event(event)
@@ -224,7 +234,6 @@ class HelixNode(GossipNode):
             evt_id = message.get("event_id")
             idx = message.get("index")
             seed_hex = message.get("seed")
-            depth = int(message.get("depth", 1))
             merkle_info = message.get("merkle_proof")
             pub = message.get("pubkey")
             sig = message.get("signature")
@@ -236,15 +245,22 @@ class HelixNode(GossipNode):
                 return
             seed = bytes.fromhex(seed_hex)
             if pub and sig:
-                payload = f"{evt_id}:{idx}:{seed.hex()}:{depth}".encode("utf-8")
+                payload = f"{evt_id}:{idx}:{seed.hex()}".encode("utf-8")
                 if not signature_utils.verify_signature(payload, sig, pub):
                     return
+            block = event["microblocks"][idx]
+            N = len(block)
             chain = [seed]
             current = seed
-            for _ in range(1, depth):
-                current = minihelix.G(current, len(event["microblocks"][idx]))
+            found = False
+            for _ in range(1, self.max_nested_depth + 1):
+                current = minihelix.G(current, N)
+                if current == block:
+                    found = True
+                    break
                 chain.append(current)
-            encoded = nested_miner.encode_header(depth, len(seed)) + b"".join(chain)
+            if not found:
+                return
 
             if not merkle_info:
                 return
@@ -253,9 +269,12 @@ class HelixNode(GossipNode):
             proof = merkle.MerkleProof(siblings=siblings, index=index)
 
             root = merkle.merkle_root(self.merkle_trees.get(evt_id) or merkle.build_merkle_tree(event["microblocks"]))
-            block = event["microblocks"][idx]
             if not merkle.verify_merkle_proof(block, proof.siblings, root, proof.index):
                 return
+
+            depth = len(chain)
+            header_byte = (depth << 4) | len(chain[0])
+            encoded = bytes([header_byte]) + b"".join(chain)
 
             try:
                 event_manager.accept_mined_seed(event, idx, encoded)

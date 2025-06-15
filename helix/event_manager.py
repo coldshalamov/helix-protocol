@@ -230,16 +230,20 @@ def mark_mined(
         if events_dir is not None:
             save_event(event, events_dir)
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes] | bytes, *, miner: Optional[str] = None) -> float:
     """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
 
     Only the first seed in ``seed_chain`` is validated against the microblock
     size.  Nested seeds are merely checked for correctness via
     :func:`nested_miner.verify_nested_seed`.
     """
-    seed = seed_chain[0]
-    depth = len(seed_chain)
     block = event["microblocks"][index]
+    if isinstance(seed_chain, (bytes, bytearray)):
+        depth, seed_len = nested_miner.decode_header(seed_chain[0])
+        seed = seed_chain[1 : 1 + seed_len]
+    else:
+        seed = seed_chain[0]
+        depth = len(seed_chain)
     assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
 
     penalty = nesting_penalty(depth)

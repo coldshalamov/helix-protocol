@@ -4,7 +4,7 @@ pytest.importorskip("nacl")
 
 from helix.helix_node import HelixNode, GossipMessageType
 from helix.gossip import LocalGossipNetwork
-from helix import event_manager, signature_utils
+from helix import event_manager, signature_utils, minihelix
 
 
 def test_signed_microblock_replacement(tmp_path):
@@ -37,28 +37,31 @@ def test_signed_microblock_replacement(tmp_path):
     event_manager.accept_mined_seed(event_b, 0, enc)
 
     seed = b"a"
-    depth = 2
-    payload = f"{evt_id}:0:{seed.hex()}:{depth}".encode("utf-8")
+    payload = f"{evt_id}:0:{seed.hex()}".encode("utf-8")
     sig = signature_utils.sign_data(payload, priv)
     msg = {
         "type": GossipMessageType.MINED_MICROBLOCK,
         "event_id": evt_id,
         "index": 0,
         "seed": seed.hex(),
-        "depth": depth,
         "pubkey": pub,
         "signature": sig,
     }
     node_b._handle_message(msg)
-    hdr = event_b["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event_b["seeds"][0][1 : 1 + l] == seed
-    assert event_b["seed_depths"][0] == depth
+    block = event_b["microblocks"][0]
+    N = len(block)
+    expected = [seed]
+    current = seed
+    while True:
+        current = minihelix.G(current, N)
+        if current == block:
+            break
+        expected.append(current)
+    assert event_b["seeds"][0] == expected
+    assert event_b["seed_depths"][0] == len(expected)
 
     wrong = msg.copy()
     wrong["signature"] = signature_utils.sign_data(b"bad", priv)
     node_b._handle_message(wrong)
-    hdr = event_b["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event_b["seeds"][0][1 : 1 + l] == seed
+    assert event_b["seeds"][0] == expected
 
