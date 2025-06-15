@@ -99,16 +99,19 @@ def cmd_mine(args: argparse.Namespace) -> None:
     for idx, block in enumerate(event["microblocks"]):
         if event["mined_status"][idx]:
             continue
-        result = nested_miner.find_nested_seed(block)
-        if result is None:
-            print(f"No seed found for block {idx}")
-            continue
-        chain, depth = result
-        if not nested_miner.verify_nested_seed(chain, block):
-            print(f"Seed verification failed for block {idx}")
-            continue
-        event_manager.accept_mined_seed(event, idx, chain)
-        print(f"Mined microblock {idx}")
+        while True:
+            result = nested_miner.find_nested_seed(block, max_depth=10)
+            if result is None:
+                # keep searching without aborting early
+                continue
+            chain, depth = result
+            if not nested_miner.verify_nested_seed(chain, block):
+                continue
+            event_manager.accept_mined_seed(event, idx, chain)
+            print(
+                f"\u2714 Block {idx} mined at depth {depth} with seed {chain[0].hex()}"
+            )
+            break
     event_manager.save_event(event, str(events_dir))
 
 
