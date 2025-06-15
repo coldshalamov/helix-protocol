@@ -111,4 +111,12 @@ def verify_nested_seed(
     if len(seed_chain) - 1 >= max_steps:
         return False
     current = seed_chain[0]
-    for step_num, step in enumerate(seed_chain[1:]()
+    for step_num, step in enumerate(seed_chain[1:], start=1):
+        if step_num > max_steps:
+            return False
+        current = G(current, N)
+        if current != step:
+            return False
+    current = G(current, N)
+    return current == target_block
+    
