@@ -147,14 +147,11 @@ def hybrid_mine(
 ) -> tuple[bytes, int] | None:
     """Attempt direct and nested mining for ``target_block``.
 
-    The function first tries :func:`minihelix.mine_seed` to find a direct
-    seed. If that fails, :func:`find_nested_seed` is used. The return value
-    is a ``(seed, depth)`` tuple where ``depth`` indicates the number of
-    applications of ``G`` required to regenerate the block.``seed`` is the
-    base seed when ``depth`` is greater than one.
-    """
+    The function first tries :func:`find_nested_seed`. If successful,
+    returns the base seed and depth. If not, falls back to :func:`mine_seed`.
 
-    # Prefer nested search so deterministic tests find the expected seed
+    Returns a ``(seed, depth)`` tuple.
+    """
     result = find_nested_seed(
         target_block,
         max_depth=max_depth,
@@ -173,4 +170,3 @@ def hybrid_mine(
         return seed, 1
 
     return None
-    
