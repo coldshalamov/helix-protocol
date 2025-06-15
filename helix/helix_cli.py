@@ -119,9 +119,9 @@ def cmd_reassemble_statement(args: argparse.Namespace) -> None:
 
     author = event.get("originator_pub")
     print(f"Author: {author}")
-    for idx, (depth, seed) in enumerate(zip(event.get("seed_depths", []), event.get("seeds", []))):
+    for idx, seed in enumerate(event.get("seeds", [])):
         length = len(seed) if seed is not None else 0
-        print(f"Block {idx}: depth={depth} seed_len={length}")
+        print(f"Block {idx}: seed_len={length}")
     print(statement)
 
 
