@@ -5,6 +5,20 @@ from __future__ import annotations
 from .minihelix import G, mine_seed
 
 
+class NestedSeed(bytes):
+    """Representation of a mined nested seed chain."""
+
+    def __new__(cls, chain_bytes: bytes, depth: int, encoded: bytes):
+        obj = bytes.__new__(cls, chain_bytes)
+        obj.depth = depth
+        obj.encoded = encoded
+        return obj
+
+    def __iter__(self):
+        yield self.encoded
+        yield self.depth
+
+
 def _encode_chain(chain: list[bytes]) -> bytes:
     depth = len(chain)
     seed_len = len(chain[0])
@@ -40,11 +54,12 @@ def find_nested_seed(
     start_nonce: int = 0,
     attempts: int = 10_000,
     max_steps: int = 1000,
-) -> bytes | tuple[bytes, int] | None:
+) -> NestedSeed | None:
     """Deterministically search for a nested seed chain yielding ``target_block``.
 
-    If ``max_steps`` differs from the default, only the encoded seed chain is
-    returned. Otherwise a ``(encoded, depth)`` tuple is provided.
+    The returned value is a :class:`NestedSeed` instance containing the
+    encoded seed chain and the corresponding depth, or ``None`` if no
+    chain is found.
     """
     def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
         for length in range(1, max_len + 1):
@@ -65,10 +80,9 @@ def find_nested_seed(
         for _ in range(max_depth):
             current = G(current, N)
             if current == target_block:
-                if max_steps != 1000:
-                    return b"".join(chain)
                 encoded = _encode_chain(chain)
-                return encoded, len(chain)
+                chain_bytes = b"".join(chain)
+                return NestedSeed(chain_bytes, len(chain), encoded)
             chain.append(current)
         nonce += 1
     return None
@@ -124,19 +138,35 @@ def verify_nested_seed(
     return current == target_block
 
 
-def hybrid_mine(target_block: bytes, max_depth: int = 10):
-    """Return the base seed and depth for ``target_block`` using a hybrid search."""
-    result = find_nested_seed(target_block, max_depth=max_depth)
-    if result is None:
-        seed = mine_seed(target_block)
-        if seed is None:
-            return None
+def hybrid_mine(
+    target_block: bytes,
+    *,
+    max_depth: int = 10,
+    attempts: int | None = None,
+    max_steps: int = 1000,
+) -> tuple[bytes, int] | None:
+    """Attempt direct and nested mining for ``target_block``.
+
+    The function first tries :func:`find_nested_seed`. If successful,
+    returns the base seed and depth. If not, falls back to :func:`mine_seed`.
+
+    Returns a ``(seed, depth)`` tuple.
+    """
+    result = find_nested_seed(
+        target_block,
+        max_depth=max_depth,
+        start_nonce=0,
+        attempts=attempts or 10_000,
+        max_steps=max_steps,
+    )
+    if result is not None:
+        encoded = result.encoded
+        depth = result.depth
+        chain = _decode_chain(encoded, len(target_block))
+        return chain[0], depth
+
+    seed = mine_seed(target_block, max_attempts=attempts)
+    if seed is not None:
         return seed, 1
-    if isinstance(result, tuple):
-        encoded, depth = result
-    else:
-        encoded = _encode_chain([result]) if isinstance(result, bytes) else result
-        depth = 2 if isinstance(result, bytes) else encoded[0]
-    chain = _decode_chain(encoded, len(target_block))
-    return chain[0], depth
-    
+
+    return None
