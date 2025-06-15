@@ -36,13 +36,20 @@ def find_nested_seed(
 
 
 def verify_nested_seed(seed_chain: list[bytes], target_block: bytes) -> bool:
-    """Return ``True`` if applying ``G`` over ``seed_chain`` yields ``target_block``."""
+    """Return ``True`` if applying ``G`` over ``seed_chain`` yields ``target_block``.
+
+    Only ``seed_chain[0]`` is required to be ``<=`` the microblock size.  Subsequent
+    seeds may be any length as long as they match the result of applying ``G``.
+    """
 
     if not seed_chain:
         return False
 
     N = len(target_block)
-    current = seed_chain[0]
+    first = seed_chain[0]
+    if len(first) > N or len(first) == 0:
+        return False
+    current = first
     for next_seed in seed_chain[1:]:
         current = G(current, N)
         if current != next_seed:

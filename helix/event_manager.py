@@ -187,6 +187,13 @@ def mark_mined(
 
 
 def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+    """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
+
+    Only the first seed in ``seed_chain`` is validated against the microblock
+    size.  Nested seeds are merely checked for correctness via
+    :func:`nested_miner.verify_nested_seed`.
+    """
+
     seed = seed_chain[0]
     depth = len(seed_chain)
     block = event["microblocks"][index]
