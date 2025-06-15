@@ -20,7 +20,7 @@ def test_accept_mined_seed_replacement():
     original_reward = event["rewards"][0]
 
     refund = event_manager.accept_mined_seed(event, 0, enc)
-    expected_reward = event_manager.reward_for_depth(2)
+    expected_reward = event_manager.compute_reward(b"a", 3)
     assert refund == pytest.approx(original_reward - expected_reward)
     assert event["seed_depths"][0] == 2
     assert event["penalties"][0] == 1
@@ -36,7 +36,7 @@ def test_accept_mined_seed_shorter_replacement():
 
     enc_a = event_manager.nested_miner.encode_header(5, 1) + b"a"
     refund = event_manager.accept_mined_seed(event, 0, enc_a)
-    expected_reward = event_manager.reward_for_depth(5)
+    expected_reward = event_manager.compute_reward(b"a", 3)
     hdr = event["seeds"][0][0]
     _, l = event_manager.nested_miner.decode_header(hdr)
     assert event["seeds"][0][1 : 1 + l] == b"a"
