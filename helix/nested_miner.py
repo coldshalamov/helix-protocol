@@ -89,15 +89,24 @@ def find_nested_seed(
     return None
 
 
-def verify_nested_seed(seed_chain: list[bytes] | bytes, target_block: bytes) -> bool:
+def verify_nested_seed(
+    seed_chain: list[bytes] | bytes,
+    target_block: bytes,
+    *,
+    max_steps: int = 1000,
+) -> bool:
     """Return True if ``seed_chain`` regenerates ``target_block``.
 
-    Accepts either a list of seed steps or a flat byte-encoded chain.
+    Accepts either a list of seed steps or a flat byte-encoded chain.  ``max_steps``
+    limits how many times :func:`G` may be applied during verification.  If this
+    limit is exceeded, ``False`` is returned.
     """
     if isinstance(seed_chain, (bytes, bytearray)):
         if not seed_chain:
             return False
         depth, seed_len = decode_header(seed_chain[0])
+        if depth > max_steps:
+            return False
         N = len(target_block)
         expected_len = 1 + seed_len + (depth - 1) * N
         if len(seed_chain) != expected_len:
@@ -109,26 +118,36 @@ def verify_nested_seed(seed_chain: list[bytes] | bytes, target_block: bytes) -> 
             return False
         offset += seed_len
         current = seed
-        for _ in range(1, depth):
+        for i in range(1, depth):
+            if i >= max_steps:
+                return False
             current = G(current, N)
             if current != seed_chain[offset : offset + N]:
                 return False
             offset += N
 
+        if depth >= max_steps:
+            return False
         current = G(current, N)
         return current == target_block
     else:
         # List of bytes version
         if not seed_chain:
             return False
+        if len(seed_chain) > max_steps:
+            return False
         N = len(target_block)
         current = seed_chain[0]
         if len(current) == 0 or len(current) > N:
             return False
-        for step in seed_chain[1:]:
+        for i, step in enumerate(seed_chain[1:], start=1):
+            if i >= max_steps:
+                return False
             current = G(current, N)
             if current != step:
                 return False
+        if len(seed_chain) - 1 >= max_steps:
+            return False
         current = G(current, N)
         return current == target_block
 
