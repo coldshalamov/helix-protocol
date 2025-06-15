@@ -113,8 +113,23 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
 
-def finalize_event(event: Dict[str, Any], *, node_id: Optional[str] = None) -> Dict[str, float]:
-    """Resolve bets and mining rewards for ``event`` and append block header."""
+def finalize_event(
+    event: Dict[str, Any], *, node_id: Optional[str] = None, chain_file: str = "blockchain.jsonl"
+) -> Dict[str, float]:
+    """Resolve bets, calculate rewards and append a finalized block.
+
+    Parameters
+    ----------
+    event:
+        Event dictionary with mining information.
+    node_id:
+        Identifier (usually public key) of the miner finalizing the event.
+    chain_file:
+        Location of the blockchain file. Defaults to ``blockchain.jsonl``.
+    """
+    if not event.get("is_closed"):
+        raise ValueError("event is not fully mined")
+
     yes_raw = event.get("bets", {}).get("YES", [])
     no_raw = event.get("bets", {}).get("NO", [])
 
@@ -154,15 +169,48 @@ def finalize_event(event: Dict[str, Any], *, node_id: Optional[str] = None) -> D
         k: (v.hex() if isinstance(v, (bytes, bytearray)) else v)
         for k, v in event["header"].items()
     }
-    block_header = {
-        "block_id": sha256(json.dumps(hdr_serializable).encode("utf-8")),
-        "parent_id": hdr_serializable.get("parent_id"),
-        "event_ids": [hdr_serializable.get("statement_id")],
+
+    evt_id = hdr_serializable.get("statement_id")
+
+    # Determine parent block from existing chain if available
+    parent_id = GENESIS_HASH
+    try:
+        import blockchain as _bc
+    except Exception:  # pragma: no cover - fallback when module missing
+        _bc = None
+
+    if _bc is not None:
+        if hasattr(_bc, "get_chain_tip"):
+            try:
+                parent_id = _bc.get_chain_tip(chain_file)
+            except Exception:
+                parent_id = GENESIS_HASH
+        else:
+            try:
+                chain = _bc.load_chain(chain_file)
+                if chain:
+                    last = chain[-1]
+                    parent_id = last.get("block_id", last.get("id", GENESIS_HASH))
+            except Exception:
+                parent_id = GENESIS_HASH
+
+    block_content = {
+        "parent_id": parent_id,
+        "event_ids": [evt_id],
         "timestamp": datetime.utcnow().isoformat(),
         "miner": node_id,
-        "merkle_root": hdr_serializable.get("merkle_root"),
     }
-    append_block(block_header)
+    block_id = sha256(json.dumps(block_content, sort_keys=True).encode("utf-8"))
+    block_content["block_id"] = block_id
+
+    if _bc is not None and hasattr(_bc, "append_block"):
+        _bc.append_block(block_content, chain_file)
+    else:
+        # Fallback JSONL writer
+        line = json.dumps(block_content, separators=(",", ":"))
+        path = Path(chain_file)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
     return payouts
 
 def accept_mined_seed(
