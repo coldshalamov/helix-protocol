@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from .minihelix import G
+
+
 def find_nested_seed(
     target_block: bytes,
     max_depth: int = 10,
@@ -37,3 +42,30 @@ def find_nested_seed(
                 chain.append(current)
         nonce += 1
     return None
+
+
+def verify_nested_seed(seed_chain: list[bytes], target_block: bytes) -> bool:
+    """Return True if applying G() iteratively over ``seed_chain`` yields ``target_block``.
+
+    Only ``seed_chain[0]`` is required to be ``<=`` the target block length.
+    Inner seeds may be any length.
+    """
+
+    if not seed_chain:
+        return False
+
+    N = len(target_block)
+
+    first = seed_chain[0]
+    if len(first) > N or len(first) == 0:
+        return False
+
+    current = first
+    for next_seed in seed_chain[1:]:
+        current = G(current, N)
+        if current != next_seed:
+            return False
+
+    # Final application of G must yield the target block
+    current = G(current, N)
+    return current == target_block
