@@ -81,9 +81,26 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
             balances[old_miner] = balances.get(old_miner, 0.0) + refund
 
 
+def get_total_supply(events_dir: str) -> float:
+    """Return total HLX issued across all events in ``events_dir``."""
+    path = Path(events_dir)
+    if not path.exists():
+        return 0.0
+
+    supply = 0.0
+    for event_file in path.glob("*.json"):
+        event = event_manager.load_event(str(event_file))
+        rewards = event.get("rewards", [])
+        refunds = event.get("refunds", [])
+        supply += sum(rewards) - sum(refunds)
+
+    return supply
+
+
 __all__ = [
     "load_balances",
     "save_balances",
     "compression_stats",
     "apply_mining_results",
+    "get_total_supply",
 ]
