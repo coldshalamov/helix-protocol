@@ -15,6 +15,7 @@ from . import event_manager
 from . import nested_miner
 from . import betting_interface
 from .ledger import load_balances, compression_stats
+from .blockchain import load_chain
 
 
 def _default_genesis_file() -> str:
@@ -172,6 +173,28 @@ def cmd_view_wallet(args: argparse.Namespace) -> None:
         print("Wallet empty")
         return
     print(json.dumps(balances, indent=2))
+
+
+def cmd_view_chain(args: argparse.Namespace) -> None:
+    """Print a summary of each block in the chain."""
+    if args.path is not None:
+        chain_file = args.path
+    else:
+        chain_file = str(Path(args.data_dir) / "chain.json")
+
+    blocks = load_chain(chain_file)
+    if not blocks:
+        print("No chain data found")
+        return
+
+    for block in blocks:
+        bid = block.get("id") or block.get("block_id")
+        parent = block.get("parent_id")
+        events = block.get("events") or block.get("event_ids") or []
+        timestamp = block.get("timestamp")
+        miner = block.get("miner")
+        count = len(events) if isinstance(events, list) else events
+        print(f"{bid} {parent} {count} {timestamp} {miner}")
 
 
 def cmd_helix_node(args: argparse.Namespace) -> None:
@@ -363,6 +386,10 @@ def main(argv: list[str] | None = None) -> None:
 
     p_wallet = sub.add_parser("view-wallet", help="View wallet balances")
     p_wallet.set_defaults(func=cmd_view_wallet)
+
+    p_chain = sub.add_parser("view-chain", help="Show blockchain summary")
+    p_chain.add_argument("--path", help="Path to chain JSON file")
+    p_chain.set_defaults(func=cmd_view_chain)
 
     p_remine = sub.add_parser("remine-microblock", help="Retry mining a single microblock")
     p_remine.add_argument("--event-id", required=True, help="Event identifier")
