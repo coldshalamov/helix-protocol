@@ -180,15 +180,8 @@ class HelixNode(GossipNode):
             else:
                 result = nested_miner.find_nested_seed(block, max_depth=self.max_nested_depth)
                 if result:
-                    encoded, depth = result
-                    N = len(block)
-                    seed_len = len(encoded) - 1 - (depth - 1) * N
-                    first = encoded[1 : 1 + seed_len]
-                    chain = [first]
-                    current = first
-                    for _ in range(1, depth):
-                        current = minihelix.G(current, N)
-                        chain.append(current)
+                    encoded, _ = result
+                    chain = nested_miner._decode_chain(encoded, len(block))
                     if nested_miner.verify_nested_seed(chain, block):
                         seed_chain = chain
             if seed_chain is None:
@@ -262,6 +255,10 @@ class HelixNode(GossipNode):
             if not found:
                 return
 
+            depth = len(chain)
+            header_byte = (depth << 4) | len(chain[0])
+            encoded = bytes([header_byte]) + b"".join(chain)
+
             if not merkle_info:
                 return
             siblings = [bytes.fromhex(s) for s in merkle_info.get("siblings", [])]
@@ -271,10 +268,6 @@ class HelixNode(GossipNode):
             root = merkle.merkle_root(self.merkle_trees.get(evt_id) or merkle.build_merkle_tree(event["microblocks"]))
             if not merkle.verify_merkle_proof(block, proof.siblings, root, proof.index):
                 return
-
-            depth = len(chain)
-            header_byte = (depth << 4) | len(chain[0])
-            encoded = bytes([header_byte]) + b"".join(chain)
 
             try:
                 event_manager.accept_mined_seed(event, idx, encoded)

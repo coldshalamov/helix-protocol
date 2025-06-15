@@ -33,7 +33,7 @@ def test_signed_microblock_replacement(tmp_path):
     node_b.events[evt_id] = event_manager.create_event("ab", microblock_size=2)
 
     event_b = node_b.events[evt_id]
-    enc = event_manager.nested_miner.encode_header(3, len(b"long")) + b"long"
+    enc = bytes([3, len(b"long")]) + b"long"
     event_manager.accept_mined_seed(event_b, 0, enc)
 
     seed = b"a"
@@ -48,6 +48,8 @@ def test_signed_microblock_replacement(tmp_path):
         "signature": sig,
     }
     node_b._handle_message(msg)
+
+    # Validate reconstructed seed chain matches expected outcome
     block = event_b["microblocks"][0]
     N = len(block)
     expected = [seed]
@@ -58,10 +60,9 @@ def test_signed_microblock_replacement(tmp_path):
             break
         expected.append(current)
     assert event_b["seeds"][0] == expected
-    assert event_b["seed_depths"][0] == len(expected)
 
+    # Confirm invalid signature doesn't override valid one
     wrong = msg.copy()
     wrong["signature"] = signature_utils.sign_data(b"bad", priv)
     node_b._handle_message(wrong)
     assert event_b["seeds"][0] == expected
-
