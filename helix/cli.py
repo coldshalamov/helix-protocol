@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import hashlib
 from pathlib import Path
@@ -14,7 +13,6 @@ import time
 from . import event_manager
 from . import signature_utils as su
 from . import nested_miner
-from . import minihelix
 from . import betting_interface
 from .ledger import load_balances, compression_stats
 
@@ -294,9 +292,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
     genesis_path = Path("genesis.json")
     if not genesis_path.exists():
-        print("WARNING: genesis.json not found - run genesis.py to create it")
+        print("WARNING: genesis.json not found")
         ok = False
-    else:
+        alt = Path(__file__).resolve().parent / "genesis.json"
+        if alt.exists():
+            genesis_path = alt
+    if genesis_path.exists():
         digest = hashlib.sha256(genesis_path.read_bytes()).hexdigest()
         if digest != GENESIS_HASH:
             print(

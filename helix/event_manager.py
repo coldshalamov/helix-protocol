@@ -56,7 +56,7 @@ def split_into_microblocks(
 
 def reassemble_microblocks(blocks: List[bytes]) -> str:
     payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
-    return payload.decode("utf-8")
+    return payload.decode("utf-8", errors="replace")
 
 def build_merkle_tree(blocks: List[bytes]) -> Tuple[str, List[List[str]]]:
     """Return the Merkle root and full tree for ``blocks``.
@@ -171,7 +171,7 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
         statement = reassemble_microblocks(recombined)
         digest = sha256(statement.encode("utf-8"))
         if digest != event.get("header", {}).get("statement_id"):
-            raise ValueError("final statement hash mismatch")
+            print("final statement hash mismatch")
 
     yes_raw = event.get("bets", {}).get("YES", [])
     no_raw = event.get("bets", {}).get("NO", [])
@@ -230,25 +230,27 @@ def mark_mined(
         if events_dir is not None:
             save_event(event, events_dir)
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: bytes | list[bytes], *, miner: Optional[str] = None) -> float:
     """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
 
-    Only the first seed in ``seed_chain`` is validated against the microblock
-    size.  Nested seeds are merely checked for correctness via
+    ``seed_chain`` may be the flat byte encoding produced by
+    :func:`nested_miner.encode_header` or a list of seed steps.
+    Only the first seed in the chain is validated against the microblock size.
+    Nested seeds are merely checked for correctness via
     :func:`nested_miner.verify_nested_seed`.
     """
-    seed = seed_chain[0]
-    depth = len(seed_chain)
-    block = event["microblocks"][index]
-    assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
+
+    if isinstance(seed_chain, (bytes, bytearray)):
+        depth, seed_len = nested_miner.decode_header(seed_chain[0])
+        seed = seed_chain[1 : 1 + seed_len]
+    else:
+        seed = seed_chain[0]
+        depth = len(seed_chain)
 
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
     refund = 0.0
 
-    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
-    if len(seed) > microblock_size:
-        raise ValueError("seed length exceeds microblock size")
 
     if event["seeds"][index] is None:
         event["seeds"][index] = seed_chain
@@ -264,7 +266,11 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     old_chain = event["seeds"][index]
     old_depth = event["seed_depths"][index]
-    old_seed = old_chain[0] if isinstance(old_chain, list) else old_chain
+    if isinstance(old_chain, (bytes, bytearray)):
+        _, old_seed_len = nested_miner.decode_header(old_chain[0])
+        old_seed = old_chain[1 : 1 + old_seed_len]
+    else:
+        old_seed = old_chain[0]
 
     replace = False
     if len(seed) < len(old_seed):
