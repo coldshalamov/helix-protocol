@@ -1,3 +1,4 @@
+```python
 import json
 from pathlib import Path
 from typing import Dict, Tuple, Any
@@ -49,7 +50,6 @@ def compression_stats(events_dir: str) -> Tuple[int, float]:
     events_dir:
         Directory containing event JSON files.
     """
-
     path = Path(events_dir)
     if not path.exists():
         return 0, 0.0
@@ -90,6 +90,10 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
     refunds = event.get("refunds", [])
     refund_miners = event.get("refund_miners", [None] * len(miners))
 
+    net_reward = sum(rewards) - sum(refunds)
+    if net_reward:
+        update_total_supply(net_reward)
+
     for idx, miner in enumerate(miners):
         if miner:
             reward = rewards[idx] if idx < len(rewards) else 0.0
@@ -104,8 +108,9 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
 __all__ = [
     "load_balances",
     "save_balances",
-    "compression_stats",
-    "apply_mining_results",
     "get_total_supply",
     "update_total_supply",
+    "compression_stats",
+    "apply_mining_results",
 ]
+```
