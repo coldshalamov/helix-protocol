@@ -1,4 +1,4 @@
 """Configuration constants for the Helix protocol."""
 
 # SHA-256 of genesis.json – must match across all nodes.
-GENESIS_HASH = "a6dc431bd631e98973a6a15baa8a27a21b2f60ef9193fc9954f4141eda3d40bc"
+GENESIS_HASH = "f2a521ab40a1211a0a034aac27a55186ccf6163c715d7deafb55790f0e37b8c3"
