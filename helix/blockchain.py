@@ -1,7 +1,7 @@
 ```python
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .config import GENESIS_HASH
 
@@ -24,7 +24,7 @@ def get_chain_tip(path: str = "blockchain.jsonl") -> str:
     if not file.exists():
         return GENESIS_HASH
 
-    last_line: str | None = None
+    last_line: Optional[str] = None
     with open(file, "r", encoding="utf-8") as fh:
         for line in fh:
             if line.strip():
@@ -44,20 +44,28 @@ def get_chain_tip(path: str = "blockchain.jsonl") -> str:
 def load_chain(path: str) -> List[Dict[str, Any]]:
     """Load blockchain data from ``path``.
 
-    If the file does not exist, an empty list is returned.
-    The file is expected to contain JSON representing a list of blocks or a
-    dictionary with a ``"chain"`` key.
+    Supports both JSON lines and structured block files.
+    - If file contains a list of blocks → returns directly.
+    - If file contains a dict with "blocks" or "chain" → extracts list.
+    - If file doesn't exist → returns [].
     """
     file = Path(path)
     if not file.exists():
         return []
     with open(file, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
+        try:
+            data = json.load(fh)
+        except json.JSONDecodeError:
+            return []
+
+    if isinstance(data, list):
+        return data
     if isinstance(data, dict):
-        data = data.get("chain", [])
-    if not isinstance(data, list):
-        return []
-    return data
+        if "blocks" in data and isinstance(data["blocks"], list):
+            return data["blocks"]
+        if "chain" in data and isinstance(data["chain"], list):
+            return data["chain"]
+    return []
 
 
 def validate_chain(chain: List[Dict[str, Any]]) -> bool:
