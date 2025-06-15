@@ -59,3 +59,75 @@ def validate_blockchain(path: str = "blockchain.jsonl") -> bool:
             return False
         prev_id = block_id
     return True
+
+
+def validate_chain(chain: List[Dict]) -> bool:
+    """Validate a blockchain provided as a list of block headers."""
+    prev_id = None
+    for block in chain:
+        parent_id = block.get("parent_id")
+        block_copy = dict(block)
+        block_id = block_copy.pop("block_id", None)
+        if block_id is None:
+            return False
+        digest = hashlib.sha256(
+            json.dumps(block_copy, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        if digest != block_id:
+            return False
+        if prev_id is not None and parent_id != prev_id:
+            return False
+        prev_id = block_id
+    return True
+
+
+def _chain_weight(chain: List[Dict], events_dir: str) -> float:
+    """Return total compression rewards for ``chain`` based on event files."""
+    try:
+        from helix import event_manager  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        return 0.0
+
+    weight = 0.0
+    events_path = Path(events_dir)
+    for block in chain:
+        ids = block.get("event_ids") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        for evt_id in ids:
+            evt_file = events_path / f"{evt_id}.json"
+            if not evt_file.exists():
+                continue
+            try:
+                event = event_manager.load_event(str(evt_file))
+            except Exception:
+                continue
+            rewards = event.get("rewards", [])
+            refunds = event.get("refunds", [])
+            weight += sum(rewards) - sum(refunds)
+    return weight
+
+
+def resolve_fork(
+    local_chain: List[Dict],
+    remote_chain: List[Dict],
+    *,
+    events_dir: str = "events",
+) -> List[Dict]:
+    """Return the preferred chain between ``local_chain`` and ``remote_chain``.
+
+    The remote chain is adopted only if it is longer, valid, and has a greater
+    total compression reward weight.
+    """
+
+    if len(remote_chain) <= len(local_chain):
+        return local_chain
+    if not validate_chain(remote_chain):
+        return local_chain
+
+    local_weight = _chain_weight(local_chain, events_dir)
+    remote_weight = _chain_weight(remote_chain, events_dir)
+
+    if remote_weight > local_weight:
+        return remote_chain
+    return local_chain
