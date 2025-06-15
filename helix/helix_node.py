@@ -8,7 +8,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import event_manager, minihelix, nested_miner, signature_utils, merkle
+from . import (
+    event_manager,
+    minihelix,
+    nested_miner,
+    signature_utils,
+    merkle,
+)
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances, apply_mining_results
 from .gossip import GossipNode, LocalGossipNetwork
@@ -17,7 +23,7 @@ from .network import SocketGossipNetwork
 
 class GossipMessageType:
     NEW_EVENT = "NEW_EVENT"
-    NEW_STATEMENT = NEW_EVENT  # backward compatibility
+    NEW_STATEMENT = NEW_EVENT
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
 
@@ -78,9 +84,15 @@ class HelixNode(GossipNode):
         self.genesis = json.loads(data.decode("utf-8"))
 
         self.events: Dict[str, Dict[str, Any]] = {}
+        self.merkle_trees: Dict[str, list[list[bytes]]] = {}
         self.balances: Dict[str, float] = load_balances(self.balances_file)
 
         self.load_state()
+
+    def _store_merkle_tree(self, event: Dict[str, Any]) -> None:
+        evt_id = event["header"]["statement_id"]
+        tree = merkle.build_merkle_tree(event["microblocks"])
+        self.merkle_trees[evt_id] = tree
 
     def load_state(self) -> None:
         for path in self.events_dir.glob("*.json"):
@@ -107,6 +119,7 @@ class HelixNode(GossipNode):
             parent_id=GENESIS_HASH,
             private_key=private_key,
         )
+        self._store_merkle_tree(event)
         if private_key and event.get("originator_pub"):
             fee = event["header"]["block_count"]
             event["header"]["gas_fee"] = fee
@@ -120,6 +133,7 @@ class HelixNode(GossipNode):
         event_manager.validate_parent(event)
         evt_id = event["header"]["statement_id"]
         self.events[evt_id] = event
+        self._store_merkle_tree(event)
 
     def submit_event(self, statement: str, *, private_key: str | None = None) -> Dict[str, Any]:
         event = self.create_event(statement, private_key=private_key)
@@ -149,9 +163,7 @@ class HelixNode(GossipNode):
             },
         }
         if self.public_key and self.private_key:
-            payload = f"{event_id}:{index}:{encoded_seed[1 : 1 + seed_len].hex()}:{depth}".encode(
-                "utf-8"
-            )
+            payload = f"{event_id}:{index}:{encoded_seed[1 : 1 + seed_len].hex()}:{depth}".encode("utf-8")
             message["signature"] = signature_utils.sign_data(payload, self.private_key)
             message["pubkey"] = self.public_key
         self._send(message)
@@ -175,7 +187,7 @@ class HelixNode(GossipNode):
             if encoded is None:
                 continue
 
-            depth, seed_len = nested_miner.decode_header(encoded[0])
+            depth, _ = nested_miner.decode_header(encoded[0])
             event_manager.accept_mined_seed(event, idx, encoded, miner=self.node_id)
 
             proof = merkle.build_merkle_proof(event["microblocks"], idx)
@@ -213,9 +225,10 @@ class HelixNode(GossipNode):
             idx = message.get("index")
             seed_hex = message.get("seed")
             depth = int(message.get("depth", 1))
+            merkle_info = message.get("merkle_proof")
             pub = message.get("pubkey")
             sig = message.get("signature")
-            _proof = message.get("merkle_proof")
+
             if evt_id not in self.events:
                 return
             event = self.events[evt_id]
@@ -232,6 +245,18 @@ class HelixNode(GossipNode):
                 current = minihelix.G(current, len(event["microblocks"][idx]))
                 chain.append(current)
             encoded = nested_miner.encode_header(depth, len(seed)) + b"".join(chain)
+
+            if not merkle_info:
+                return
+            siblings = [bytes.fromhex(s) for s in merkle_info.get("siblings", [])]
+            index = merkle_info.get("index")
+            proof = merkle.MerkleProof(siblings=siblings, index=index)
+
+            root = merkle.merkle_root(self.merkle_trees.get(evt_id) or merkle.build_merkle_tree(event["microblocks"]))
+            block = event["microblocks"][idx]
+            if not merkle.verify_merkle_proof(block, proof.siblings, root, proof.index):
+                return
+
             try:
                 event_manager.accept_mined_seed(event, idx, encoded)
             except Exception:
