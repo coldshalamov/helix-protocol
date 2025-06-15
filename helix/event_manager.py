@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import hashlib
-import math
-import json
 import base64
+import hashlib
+import json
+import math
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
+from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+
+from nacl import signing
+from . import betting_interface, nested_miner
+from .config import GENESIS_HASH
+from .signature_utils import sign_data, verify_signature
 
 if TYPE_CHECKING:
     from .statement_registry import StatementRegistry
-
-from .signature_utils import load_keys, sign_data, verify_signature
-from nacl import signing
-from .config import GENESIS_HASH
-from . import nested_miner
 
 DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -31,6 +31,7 @@ def reward_for_depth(depth: int) -> float:
 
 
 def calculate_reward(base: float, depth: int) -> float:
+    """Return the scaled reward for ``depth``."""
     if depth < 1:
         raise ValueError("depth must be >= 1")
     reward = base / depth
@@ -120,13 +121,69 @@ def create_event(
     return event
 
 
-def mark_mined(event: Dict[str, Any], index: int) -> None:
+def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
+    """Resolve bets and miner rewards for ``event``.
+
+    Returns a mapping of participant pubkeys to payout amounts which is also
+    stored in ``event['payouts']``.
+    """
+    yes_raw = event.get("bets", {}).get("YES", [])
+    no_raw = event.get("bets", {}).get("NO", [])
+
+    valid_yes = [b for b in yes_raw if betting_interface.verify_bet(b)]
+    valid_no = [b for b in no_raw if betting_interface.verify_bet(b)]
+
+    event["bets"]["YES"] = valid_yes
+    event["bets"]["NO"] = valid_no
+
+    yes_total = sum(b.get("amount", 0) for b in valid_yes)
+    no_total = sum(b.get("amount", 0) for b in valid_no)
+
+    success = yes_total > no_total
+    winners = valid_yes if success else valid_no
+    winner_total = yes_total if success else no_total
+
+    pot = yes_total + no_total
+    payouts: Dict[str, float] = {}
+
+    originator = event.get("header", {}).get("originator_pub")
+    if success and originator:
+        refund = pot * 0.01
+        payouts[originator] = payouts.get(originator, 0.0) + refund
+        pot -= refund
+
+    miners = event.get("miners", [])
+    depths = event.get("seed_depths", [])
+    for miner_id, depth in zip(miners, depths):
+        if miner_id is None or depth <= 0:
+            continue
+        reward = calculate_reward(BASE_REWARD, depth)
+        payouts[miner_id] = payouts.get(miner_id, 0.0) + reward
+
+    if winner_total > 0:
+        for bet in winners:
+            pub = bet.get("pubkey")
+            amt = bet.get("amount", 0)
+            if pub:
+                payout = pot * (amt / winner_total)
+                payouts[pub] = payouts.get(pub, 0.0) + payout
+
+    event["payouts"] = payouts
+    return payouts
+
+
+def mark_mined(
+    event: Dict[str, Any], index: int, *, events_dir: Optional[str] = None
+) -> None:
     if event["is_closed"]:
         return
     event["mined_status"][index] = True
     if all(event["mined_status"]):
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
+        finalize_event(event)
+        if events_dir is not None:
+            save_event(event, events_dir)
 
 
 def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
@@ -197,6 +254,7 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
 
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
+    """Verify the originator signature attached to ``event``."""
     header = event.get("header", {})
     signature = header.get("originator_sig")
     pubkey = header.get("originator_pub")
@@ -214,6 +272,7 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
 
 
 def verify_event_signature(event: Dict[str, Any]) -> bool:
+    """Verify the signature for ``event`` recorded at the root level."""
     signature = event.get("originator_sig")
     pubkey = event.get("originator_pub")
     statement = event.get("statement")
@@ -261,6 +320,7 @@ __all__ = [
     "reward_for_depth",
     "calculate_reward",
     "accept_mined_seed",
+    "finalize_event",
     "save_event",
     "verify_originator_signature",
     "verify_event_signature",

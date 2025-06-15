@@ -25,6 +25,11 @@ class SocketGossipNetwork:
                 continue
             self.transport.send(peer, message)
 
+    def send_message(self, sender_id: str, message: Dict[str, Any]) -> None:
+        """Compatibility wrapper matching :class:`helix.gossip.GossipNode`."""
+
+        self.send(sender_id, message)
+
     def receive(self, timeout: float | None = None) -> tuple[str, Dict[str, Any]]:
         peer, msg = self.transport.receive(timeout)
         node_id = peer.node_id or ""
