@@ -55,6 +55,7 @@ class HelixNode(GossipNode):
         *,
         events_dir: str,
         balances_file: str,
+        chain_file: str | None = None,
         node_id: str = "NODE",
         network: LocalGossipNetwork | SocketGossipNetwork | None = None,
         microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
@@ -70,6 +71,9 @@ class HelixNode(GossipNode):
         self.events_dir = Path(events_dir)
         self.events_dir.mkdir(parents=True, exist_ok=True)
         self.balances_file = str(balances_file)
+        if chain_file is None:
+            chain_file = str(Path(balances_file).parent / "chain.json")
+        self.chain_file = str(chain_file)
         self.microblock_size = microblock_size
         self.max_nested_depth = max_nested_depth
         self.public_key = public_key
@@ -88,6 +92,31 @@ class HelixNode(GossipNode):
         self.balances: Dict[str, float] = load_balances(self.balances_file)
 
         self.load_state()
+
+        # Load blockchain and replay balances
+        from . import blockchain
+
+        self.chain: list[dict] = blockchain.load_chain(self.chain_file)
+        for block in self.chain:
+            evt_id = block.get("event_id")
+            if not evt_id:
+                continue
+            event = self.events.get(evt_id)
+            if event is None:
+                evt_path = self.events_dir / f"{evt_id}.json"
+                if not evt_path.exists():
+                    continue
+                try:
+                    event = event_manager.load_event(str(evt_path))
+                    self.import_event(event)
+                except Exception:
+                    continue
+            apply_mining_results(event, self.balances)
+
+        if blockchain.validate_chain(self.chain):
+            print("Blockchain loaded successfully")
+        else:
+            print("Blockchain validation mismatch")
 
     def _store_merkle_tree(self, event: Dict[str, Any]) -> None:
         evt_id = event["header"]["statement_id"]
