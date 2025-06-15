@@ -1,24 +1,23 @@
+```python
 import argparse
 import json
 import hashlib
 from pathlib import Path
+import threading
+import time
 
 from .helix_node import HelixNode
 from .gossip import LocalGossipNetwork
 from .network import TCPGossipTransport, SocketGossipNetwork, Peer
 from . import signature_utils
 from .config import GENESIS_HASH
-import threading
-import time
 from . import event_manager
-from . import signature_utils as su
 from . import nested_miner
 from . import betting_interface
 from .ledger import load_balances, compression_stats
 
 
 def _default_genesis_file() -> str:
-    """Return the path to ``helix/genesis.json`` ensuring it matches ``GENESIS_HASH``."""
     path = Path(__file__).resolve().parent / "genesis.json"
     try:
         data = path.read_bytes()
@@ -33,7 +32,6 @@ def _default_genesis_file() -> str:
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """Print summary information about the node state."""
     events_dir = Path(args.data_dir) / "events"
     balances_file = Path(args.data_dir) / "balances.json"
     node = HelixNode(events_dir=str(events_dir), balances_file=str(balances_file))
@@ -71,7 +69,7 @@ def cmd_submit_statement(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
     private_key = None
     if args.keyfile:
-        _, private_key = su.load_keys(args.keyfile)
+        _, private_key = signature_utils.load_keys(args.keyfile)
     microblock_size = (
         args.microblock_size
         if args.microblock_size is not None
@@ -101,28 +99,22 @@ def cmd_mine(args: argparse.Namespace) -> None:
         while True:
             result = nested_miner.find_nested_seed(
                 block,
-                max_depth=10,
                 start_nonce=offset,
                 attempts=10_000,
             )
             offset += 10_000
             if result is None:
                 continue
-            encoded, depth = result
+            encoded = result
             if not nested_miner.verify_nested_seed(encoded, block):
                 continue
             event_manager.accept_mined_seed(event, idx, encoded)
-            _, seed_len = nested_miner.decode_header(encoded[0])
-            seed = encoded[1 : 1 + seed_len]
-            print(
-                f"\u2714 Block {idx} mined at depth {depth} with seed {seed.hex()}"
-            )
+            print(f"✔ Block {idx} mined")
             break
     event_manager.save_event(event, str(events_dir))
 
 
 def cmd_remine_microblock(args: argparse.Namespace) -> None:
-    """Attempt to mine or replace a single microblock."""
     events_dir = Path(args.data_dir) / "events"
     event_path = events_dir / f"{args.event_id}.json"
     if not event_path.exists():
@@ -148,7 +140,7 @@ def cmd_remine_microblock(args: argparse.Namespace) -> None:
     if result is None:
         print(f"No seed found for block {index}")
         return
-    encoded, depth = result
+    encoded = result
     if not nested_miner.verify_nested_seed(encoded, block):
         print(f"Seed verification failed for block {index}")
         return
@@ -183,7 +175,6 @@ def cmd_view_wallet(args: argparse.Namespace) -> None:
 
 
 def cmd_helix_node(args: argparse.Namespace) -> None:
-    """Run an automated Helix node that mines and syncs."""
     data_dir = Path(args.data_dir)
     events_dir = data_dir / "events"
     balances_file = data_dir / "balances.json"
@@ -220,7 +211,6 @@ def cmd_helix_node(args: argparse.Namespace) -> None:
 
 
 def cmd_run_node(args: argparse.Namespace) -> None:
-    """Run a full Helix node with network transport."""
     data_dir = Path(args.data_dir)
     events_dir = data_dir / "events"
     balances_file = data_dir / "balances.json"
@@ -265,7 +255,6 @@ def cmd_run_node(args: argparse.Namespace) -> None:
 
 
 def cmd_reassemble(args: argparse.Namespace) -> None:
-    """Load an event and print its reconstructed statement."""
     events_dir = Path(args.data_dir) / "events"
     if args.path is not None:
         event_path = Path(args.path)
@@ -286,8 +275,6 @@ def cmd_reassemble(args: argparse.Namespace) -> None:
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
-    """Check the data directory and config for common problems."""
-
     ok = True
 
     genesis_path = Path("genesis.json")
@@ -300,17 +287,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     if genesis_path.exists():
         digest = hashlib.sha256(genesis_path.read_bytes()).hexdigest()
         if digest != GENESIS_HASH:
-            print(
-                "WARNING: genesis.json hash mismatch - update GENESIS_HASH or regenerate the file"
-            )
+            print("WARNING: genesis.json hash mismatch - update GENESIS_HASH or regenerate the file")
             ok = False
 
     data_dir = Path(args.data_dir)
     wallet_file = data_dir / "wallet.txt"
     if not wallet_file.exists():
-        print(
-            f"WARNING: no wallet file found at {wallet_file} - run 'helix helix-node' or generate keys"
-        )
+        print(f"WARNING: no wallet file found at {wallet_file} - run 'helix helix-node' or generate keys")
         ok = False
 
     peers_file = data_dir / "peers.json"
@@ -321,9 +304,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         except Exception:
             peers = []
     if not peers:
-        print(
-            "WARNING: no peers connected - create peers.json or start another node"
-        )
+        print("WARNING: no peers connected - create peers.json or start another node")
         ok = False
 
     events_dir = data_dir / "events"
@@ -337,9 +318,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if not all(event.get("mined_status", [])):
                 unmined.append(path.stem)
     if unmined:
-        print(
-            "WARNING: unmined events detected - run 'helix mine <id>' to finish mining"
-        )
+        print("WARNING: unmined events detected - run 'helix mine <id>' to finish mining")
         for eid in unmined:
             print(f"  - {eid}")
         ok = False
@@ -362,23 +341,13 @@ def main(argv: list[str] | None = None) -> None:
 
     p_run = sub.add_parser("run-node", help="Run full networked node")
     p_run.add_argument("--host", default="0.0.0.0", help="Bind host")
-    p_run.add_argument(
-        "--peer",
-        action="append",
-        default=[],
-        dest="peers",
-        help="Peer address host:port",
-    )
+    p_run.add_argument("--peer", action="append", default=[], dest="peers", help="Peer address host:port")
     p_run.set_defaults(func=cmd_run_node)
 
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
     p_submit.add_argument("statement", help="Text of the statement")
     p_submit.add_argument("--keyfile", help="File containing originator keys")
-    p_submit.add_argument(
-        "--microblock-size",
-        type=int,
-        help="Size of microblocks in bytes",
-    )
+    p_submit.add_argument("--microblock-size", type=int, help="Size of microblocks in bytes")
     p_submit.set_defaults(func=cmd_submit_statement)
 
     p_mine = sub.add_parser("mine", help="Mine microblocks for an event")
@@ -395,16 +364,10 @@ def main(argv: list[str] | None = None) -> None:
     p_wallet = sub.add_parser("view-wallet", help="View wallet balances")
     p_wallet.set_defaults(func=cmd_view_wallet)
 
-    p_remine = sub.add_parser(
-        "remine-microblock", help="Retry mining a single microblock"
-    )
+    p_remine = sub.add_parser("remine-microblock", help="Retry mining a single microblock")
     p_remine.add_argument("--event-id", required=True, help="Event identifier")
     p_remine.add_argument("--index", type=int, required=True, help="Block index")
-    p_remine.add_argument(
-        "--force",
-        action="store_true",
-        help="Replace existing seed if a shorter one is found",
-    )
+    p_remine.add_argument("--force", action="store_true", help="Replace existing seed if a shorter one is found")
     p_remine.set_defaults(func=cmd_remine_microblock)
 
     p_status = sub.add_parser("status", help="Show node status")
@@ -423,7 +386,8 @@ def main(argv: list[str] | None = None) -> None:
     args.func(args)
 
 
-if __name__ == "__main__":  # pragma: no cover - manual execution
+if __name__ == "__main__":
     main()
 
 __all__ = ["main"]
+```
