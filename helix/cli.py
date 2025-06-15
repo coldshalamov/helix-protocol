@@ -14,6 +14,7 @@ from . import event_manager
 from . import nested_miner
 from . import betting_interface
 from .ledger import load_balances, compression_stats
+from .ledger import get_total_supply
 
 
 def _default_genesis_file() -> str:
@@ -50,6 +51,12 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def _load_event(path: Path) -> dict:
     return event_manager.load_event(str(path))
+
+
+def cmd_token_stats(args: argparse.Namespace) -> None:
+    events_dir = Path(args.data_dir) / "events"
+    total = get_total_supply(str(events_dir))
+    print(f"Total HLX Issued: {total:.4f}")
 
 
 def cmd_start_node(args: argparse.Namespace) -> None:
@@ -362,6 +369,9 @@ def main(argv: list[str] | None = None) -> None:
 
     p_wallet = sub.add_parser("view-wallet", help="View wallet balances")
     p_wallet.set_defaults(func=cmd_view_wallet)
+
+    p_tstats = sub.add_parser("token-stats", help="Show total token supply")
+    p_tstats.set_defaults(func=cmd_token_stats)
 
     p_remine = sub.add_parser("remine-microblock", help="Retry mining a single microblock")
     p_remine.add_argument("--event-id", required=True, help="Event identifier")
