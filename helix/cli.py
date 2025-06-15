@@ -1,37 +1,102 @@
-```python
 import argparse
-import json
 import hashlib
+import json
 from pathlib import Path
-import threading
-import time
 
-from .helix_node import HelixNode
-from .gossip import LocalGossipNetwork
-from .network import TCPGossipTransport, SocketGossipNetwork, Peer
-from . import signature_utils
-from .config import GENESIS_HASH
-from . import event_manager
-from . import nested_miner
-from . import betting_interface
+from . import event_manager, nested_miner, betting_interface, signature_utils
 from .ledger import load_balances, compression_stats, get_total_supply
+from .config import GENESIS_HASH
 from .blockchain import load_chain
 
 
-def _default_genesis_file() -> str:
-    path = Path(__file__).resolve().parent / "genesis.json"
-    try:
-        data = path.read_bytes()
-    except FileNotFoundError:
-        print(f"Genesis file missing: {path}")
-        raise SystemExit(1)
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != GENESIS_HASH:
-        print("Genesis file hash mismatch")
-        raise SystemExit(1)
-    return str(path)
+def cmd_doctor(args: argparse.Namespace) -> None:
+    base = Path(args.data_dir)
+    genesis = base / "genesis.json"
+    if not genesis.exists():
+        print("genesis.json not found")
+    else:
+        digest = hashlib.sha256(genesis.read_bytes()).hexdigest()
+        if digest != GENESIS_HASH:
+            print("hash mismatch")
+    wallet = base / "wallet.txt"
+    if not wallet.exists():
+        print("no wallet file")
+    events_dir = base / "events"
+    unmined: list[str] = []
+    if events_dir.exists():
+        for path in events_dir.glob("*.json"):
+            ev = event_manager.load_event(str(path))
+            if not ev.get("is_closed"):
+                unmined.append(ev.get("header", {}).get("statement_id", path.stem))
+    if unmined:
+        print("unmined events detected")
+        for eid in unmined:
+            print(eid)
 
-# ... [All other command implementations are unchanged from your provided code] ...
+
+def cmd_mine(args: argparse.Namespace) -> None:
+    events_dir = Path(args.data_dir) / "events"
+    path = events_dir / f"{args.event_id}.json"
+    if not path.exists():
+        raise SystemExit("Event not found")
+    event = event_manager.load_event(str(path))
+    for idx, block in enumerate(event.get("microblocks", [])):
+        if event.get("seeds", [None])[idx] is not None:
+            continue
+        result = nested_miner.find_nested_seed(block)
+        if result is None:
+            print(f"No seed found for block {idx}")
+            continue
+        chain, _depth = result
+        if not nested_miner.verify_nested_seed(chain, block):
+            print(f"Verification failed for block {idx}")
+            continue
+        event_manager.accept_mined_seed(event, idx, chain)
+    event_manager.save_event(event, str(events_dir))
+
+
+def cmd_remine_microblock(args: argparse.Namespace) -> None:
+    events_dir = Path(args.data_dir) / "events"
+    path = events_dir / f"{args.event_id}.json"
+    if not path.exists():
+        raise SystemExit("Event not found")
+    event = event_manager.load_event(str(path))
+    block = event["microblocks"][args.index]
+    result = nested_miner.find_nested_seed(block)
+    if result is None:
+        print("No seed found")
+        return
+    chain, _depth = result
+    if not nested_miner.verify_nested_seed(chain, block):
+        print("Verification failed")
+        return
+    if event.get("seeds", [None])[args.index] is not None and not args.force:
+        print("seed already exists; use --force to replace")
+    else:
+        event_manager.accept_mined_seed(event, args.index, chain)
+        event_manager.save_event(event, str(events_dir))
+
+
+def cmd_reassemble(args: argparse.Namespace) -> None:
+    if args.path:
+        event = event_manager.load_event(args.path)
+    else:
+        events_dir = Path(args.data_dir) / "events"
+        event_path = events_dir / f"{args.event_id}.json"
+        event = event_manager.load_event(str(event_path))
+    statement = event_manager.reassemble_microblocks(event["microblocks"])
+    digest = event_manager.sha256(statement.encode("utf-8"))
+    expected = event.get("header", {}).get("statement_id")
+    if digest != expected:
+        raise SystemExit("SHA-256 mismatch")
+    author = event.get("originator_pub")
+    if author:
+        print(f"Author: {author}")
+    for idx, seed in enumerate(event.get("seeds", [])):
+        length = len(seed) if seed is not None else 0
+        print(f"Block {idx}: seed_len={length}")
+    print(statement)
+
 
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
@@ -40,9 +105,16 @@ def cmd_token_stats(args: argparse.Namespace) -> None:
 
 
 def cmd_view_chain(args: argparse.Namespace) -> None:
-    """Print a summary of each block in the chain."""
-    chain_file = args.path if args.path else str(Path(args.data_dir) / "chain.json")
-    blocks = load_chain(chain_file)
+    base = Path(args.data_dir)
+    if args.path:
+        chain_path = Path(args.path)
+    else:
+        chain_path = base / "blockchain.jsonl"
+        if not chain_path.exists():
+            alt = base / "chain.json"
+            if alt.exists():
+                chain_path = alt
+    blocks = load_chain(str(chain_path))
     if not blocks:
         print("No chain data found")
         return
@@ -50,52 +122,58 @@ def cmd_view_chain(args: argparse.Namespace) -> None:
         bid = block.get("id") or block.get("block_id")
         parent = block.get("parent_id")
         events = block.get("events") or block.get("event_ids") or []
-        timestamp = block.get("timestamp")
+        ts = block.get("timestamp")
         miner = block.get("miner")
         count = len(events) if isinstance(events, list) else events
-        print(f"{bid} {parent} {count} {timestamp} {miner}")
+        print(f"{bid} {parent} {count} {ts} {miner}")
 
 
-def main(argv: list[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix-cli")
     parser.add_argument("--data-dir", default="data", help="Directory for node data")
-    parser.add_argument("--port", type=int, default=8000, help="Gossip port")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("start-node", help="Start a Helix node").set_defaults(func=cmd_start_node)
-    sub.add_parser("helix-node", help="Run automated mining node").set_defaults(func=cmd_helix_node)
-
-    p_run = sub.add_parser("run-node", help="Run full networked node")
-    p_run.add_argument("--host", default="0.0.0.0", help="Bind host")
-    p_run.add_argument("--peer", action="append", default=[], dest="peers", help="Peer address host:port")
-    p_run.set_defaults(func=cmd_run_node)
-
-    p_submit = sub.add_parser("submit-statement", help="Submit a statement")
-    p_submit.add_argument("statement", help="Text of the statement")
-    p_submit.add_argument("--keyfile", help="File containing originator keys")
-    p_submit.add_argument("--microblock-size", type=int, help="Size of microblocks in bytes")
-    p_submit.set_defaults(func=cmd_submit_statement)
+    p_doc = sub.add_parser("doctor", help="Check local node files")
+    p_doc.set_defaults(func=cmd_doctor)
 
     p_mine = sub.add_parser("mine", help="Mine microblocks for an event")
-    p_mine.add_argument("event_id", help="ID of the event to mine")
+    p_mine.add_argument("event_id", help="Event identifier")
     p_mine.set_defaults(func=cmd_mine)
 
-    p_bet = sub.add_parser("place-bet", help="Place a bet on an event")
-    p_bet.add_argument("event_id", help="Event identifier")
-    p_bet.add_argument("choice", choices=["YES", "NO"], help="Bet choice")
-    p_bet.add_argument("amount", type=int, help="Bet amount")
-    p_bet.add_argument("--keyfile", required=True, help="Keyfile for signing")
-    p_bet.set_defaults(func=cmd_place_bet)
+    p_rem = sub.add_parser("remine-microblock", help="Retry mining a single microblock")
+    p_rem.add_argument("--event-id", required=True, help="Event identifier")
+    p_rem.add_argument("--index", type=int, required=True, help="Block index")
+    p_rem.add_argument("--force", action="store_true", help="Replace existing seed")
+    p_rem.set_defaults(func=cmd_remine_microblock)
 
-    sub.add_parser("view-wallet", help="View wallet balances").set_defaults(func=cmd_view_wallet)
+    p_reasm = sub.add_parser("reassemble", help="Reassemble statement from event")
+    group = p_reasm.add_mutually_exclusive_group(required=True)
+    group.add_argument("--event-id", help="Event identifier")
+    group.add_argument("--path", help="Path to event JSON file")
+    p_reasm.set_defaults(func=cmd_reassemble)
+
+    sub.add_parser("token-stats", help="Show total token supply").set_defaults(func=cmd_token_stats)
 
     p_chain = sub.add_parser("view-chain", help="Show blockchain summary")
     p_chain.add_argument("--path", help="Path to chain JSON file")
     p_chain.set_defaults(func=cmd_view_chain)
 
-    sub.add_parser("token-stats", help="Show total token supply").set_defaults(func=cmd_token_stats)
+    return parser
 
-    p_remine = sub.add_parser("remine-microblock", help="Retry mining a single microblock")
-    p_remine.add_argument("--event-id", required=True, help="Event identifier")
-    p_remine.add_argument("--index", type=int, required=True, help="Block index")
-    p_remine.add_argument("--force", action="store_true", help="Replace exi_
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.func(args)
+
+
+__all__ = [
+    "main",
+    "build_parser",
+    "cmd_doctor",
+    "cmd_mine",
+    "cmd_reassemble",
+    "cmd_token_stats",
+    "cmd_view_chain",
+    "cmd_remine_microblock",
+]
