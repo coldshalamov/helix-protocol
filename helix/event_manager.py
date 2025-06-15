@@ -1,4 +1,3 @@
-```python
 import base64
 import hashlib
 import json
@@ -6,16 +5,20 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from datetime import datetime
 from nacl import signing
 
 from .config import GENESIS_HASH
-from .minihelix import sha256
 from .signature_utils import verify_signature, sign_data
-from .merkle import build_merkle_tree
-from . import nested_miner
+from .merkle_utils import build_merkle_tree
+from . import nested_miner, betting_interface
 
 DEFAULT_MICROBLOCK_SIZE = 8
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
+
+def sha256(data: bytes) -> str:
+    """Return hexadecimal SHA-256 digest of ``data``."""
+    return hashlib.sha256(data).hexdigest()
 
 def nesting_penalty(depth: int) -> int:
     return depth * 5
@@ -110,6 +113,58 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
 
+def finalize_event(event: Dict[str, Any], *, node_id: Optional[str] = None) -> Dict[str, float]:
+    """Resolve bets and mining rewards for ``event`` and append block header."""
+    yes_raw = event.get("bets", {}).get("YES", [])
+    no_raw = event.get("bets", {}).get("NO", [])
+
+    valid_yes = [b for b in yes_raw if betting_interface.verify_bet(b)]
+    valid_no = [b for b in no_raw if betting_interface.verify_bet(b)]
+
+    event["bets"]["YES"] = valid_yes
+    event["bets"]["NO"] = valid_no
+
+    yes_total = sum(b.get("amount", 0) for b in valid_yes)
+    no_total = sum(b.get("amount", 0) for b in valid_no)
+
+    success = yes_total > no_total
+    winners = valid_yes if success else valid_no
+    winner_total = yes_total if success else no_total
+
+    pot = yes_total + no_total
+    payouts: Dict[str, float] = {}
+
+    originator = event.get("originator_pub") or event.get("header", {}).get("originator_pub")
+    if success and originator:
+        refund = pot * 0.01
+        payouts[originator] = payouts.get(originator, 0.0) + refund
+        pot -= refund
+
+    if winner_total > 0:
+        for bet in winners:
+            pub = bet.get("pubkey")
+            amt = bet.get("amount", 0)
+            if pub:
+                payout = pot * (amt / winner_total)
+                payouts[pub] = payouts.get(pub, 0.0) + payout
+
+    event["payouts"] = payouts
+
+    hdr_serializable = {
+        k: (v.hex() if isinstance(v, (bytes, bytearray)) else v)
+        for k, v in event["header"].items()
+    }
+    block_header = {
+        "block_id": sha256(json.dumps(hdr_serializable).encode("utf-8")),
+        "parent_id": hdr_serializable.get("parent_id"),
+        "event_ids": [hdr_serializable.get("statement_id")],
+        "timestamp": datetime.utcnow().isoformat(),
+        "miner": node_id,
+        "merkle_root": hdr_serializable.get("merkle_root"),
+    }
+    append_block(block_header)
+    return payouts
+
 def accept_mined_seed(
     event: Dict[str, Any],
     index: int,
@@ -119,8 +174,9 @@ def accept_mined_seed(
 ) -> float:
     block = event["microblocks"][index]
     if isinstance(seed_chain, (bytes, bytearray)):
-        depth, seed_len = nested_miner.decode_header(seed_chain[0])
-        seed = seed_chain[1 : 1 + seed_len]
+        depth = seed_chain[0]
+        seed_len = seed_chain[1]
+        seed = seed_chain[2 : 2 + seed_len]
     else:
         seed = seed_chain[0]
         depth = len(seed_chain)
@@ -146,8 +202,8 @@ def accept_mined_seed(
     old_chain = event["seeds"][index]
     old_depth = event["seed_depths"][index]
     if isinstance(old_chain, (bytes, bytearray)):
-        _, old_seed_len = nested_miner.decode_header(old_chain[0])
-        old_seed = old_chain[1 : 1 + old_seed_len]
+        old_seed_len = old_chain[1]
+        old_seed = old_chain[2 : 2 + old_seed_len]
     else:
         old_seed = old_chain[0]
 
@@ -183,6 +239,14 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    if "merkle_tree" in data:
+        new_tree = []
+        for level in data["merkle_tree"]:
+            new_level = [h.hex() if isinstance(h, (bytes, bytearray)) else h for h in level]
+            new_tree.append(new_level)
+        data["merkle_tree"] = new_tree
+    if isinstance(data.get("header", {}).get("merkle_root"), (bytes, bytearray)):
+        data["header"]["merkle_root"] = data["header"]["merkle_root"].hex()
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
@@ -234,4 +298,18 @@ def load_event(path: str) -> Dict[str, Any]:
     data.setdefault("refunds", [0.0] * block_count)
     validate_parent(data)
     return data
-```
+
+
+def append_block(block_header: Dict[str, Any], chain_file: str = "blocks.json") -> None:
+    """Append ``block_header`` to the blockchain file."""
+    path = Path(chain_file)
+    chain: List[Dict[str, Any]] = []
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            try:
+                chain = json.load(f)
+            except Exception:
+                chain = []
+    chain.append(block_header)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(chain, f, indent=2)
