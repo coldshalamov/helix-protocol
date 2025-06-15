@@ -136,30 +136,30 @@ class HelixNode(GossipNode):
                 continue
             simulate_mining(idx)
             seed = find_seed(block)
-            chain: Optional[List[bytes]] = None
+            encoded: Optional[bytes] = None
             if seed and verify_seed(seed, block):
-                chain = [seed]
+                encoded = nested_miner.encode_header(1, len(seed)) + seed
             else:
                 result = nested_miner.find_nested_seed(block, max_depth=self.max_nested_depth)
                 if result:
-                    chain, _ = result
-                    if not nested_miner.verify_nested_seed(chain, block):
-                        chain = None
-            if chain is None:
+                    encoded, _ = result
+                    if not nested_miner.verify_nested_seed(encoded, block):
+                        encoded = None
+            if encoded is None:
                 continue
 
-            depth = len(chain)
-            event_manager.accept_mined_seed(event, idx, chain, miner=self.node_id)
+            depth, seed_len = nested_miner.decode_header(encoded[0])
+            event_manager.accept_mined_seed(event, idx, encoded, miner=self.node_id)
 
             message = {
                 "type": GossipMessageType.MINED_MICROBLOCK,
                 "event_id": evt_id,
                 "index": idx,
-                "seed": chain[0].hex(),
+                "seed": encoded[1 : 1 + seed_len].hex(),
                 "depth": depth,
             }
             if self.public_key and self.private_key:
-                payload = f"{evt_id}:{idx}:{chain[0].hex()}:{depth}".encode("utf-8")
+                payload = f"{evt_id}:{idx}:{encoded[1 : 1 + seed_len].hex()}:{depth}".encode("utf-8")
                 message["signature"] = signature_utils.sign_data(payload, self.private_key)
                 message["pubkey"] = self.public_key
             self._send(message)
@@ -213,8 +213,9 @@ class HelixNode(GossipNode):
             for _ in range(1, depth):
                 current = minihelix.G(current, len(event["microblocks"][idx]))
                 chain.append(current)
+            encoded = nested_miner.encode_header(depth, len(seed)) + b"".join(chain)
             try:
-                event_manager.accept_mined_seed(event, idx, chain)
+                event_manager.accept_mined_seed(event, idx, encoded)
             except Exception:
                 return
             if event.get("is_closed"):

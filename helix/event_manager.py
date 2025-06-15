@@ -186,9 +186,15 @@ def mark_mined(
             save_event(event, events_dir)
 
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
-    seed = seed_chain[0]
-    depth = len(seed_chain)
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: bytes, *, miner: Optional[str] = None) -> float:
+    """Accept ``seed_chain`` for ``block`` at ``index``."""
+
+    try:
+        depth, seed_len = nested_miner.decode_header(seed_chain[0])
+    except Exception:
+        raise ValueError("invalid seed chain header")
+
+    seed = seed_chain[1 : 1 + seed_len]
     block = event["microblocks"][index]
     assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
 
@@ -201,7 +207,7 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         raise ValueError("seed length exceeds microblock size")
 
     if event["seeds"][index] is None:
-        event["seeds"][index] = seed
+        event["seeds"][index] = seed_chain
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
@@ -212,8 +218,13 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         mark_mined(event, index)
         return 0.0
 
-    old_seed = event["seeds"][index]
+    old_chain = event["seeds"][index]
     old_depth = event["seed_depths"][index]
+    try:
+        _, old_len = nested_miner.decode_header(old_chain[0])
+    except Exception:
+        old_len = len(old_chain)
+    old_seed = old_chain[1 : 1 + old_len]
 
     replace = False
     if len(seed) < len(old_seed):
@@ -223,7 +234,7 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     if replace:
         refund = event["rewards"][index] - reward
-        event["seeds"][index] = seed
+        event["seeds"][index] = seed_chain
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
