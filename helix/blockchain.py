@@ -1,4 +1,3 @@
-```python
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -87,4 +86,3 @@ def validate_chain(chain: List[Dict[str, Any]]) -> bool:
 
 
 __all__ = ["get_chain_tip", "load_chain", "validate_chain"]
-```

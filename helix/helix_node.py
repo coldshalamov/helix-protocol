@@ -21,7 +21,9 @@ from .ledger import (
     save_balances,
     apply_mining_results,
     update_total_supply,
+    get_total_supply,
 )
+from . import statement_registry
 from .gossip import GossipNode, LocalGossipNetwork
 from .network import SocketGossipNetwork
 
@@ -95,8 +97,10 @@ class HelixNode(GossipNode):
         self.events: Dict[str, Dict[str, Any]] = {}
         self.merkle_trees: Dict[str, list[list[bytes]]] = {}
         self.balances: Dict[str, float] = load_balances(self.balances_file)
+        self.registry = statement_registry.StatementRegistry()
 
         self.load_state()
+        self.registry.rebuild_from_events(str(self.events_dir))
 
         # Load blockchain and replay balances
         from . import blockchain
@@ -118,8 +122,10 @@ class HelixNode(GossipNode):
                     continue
             apply_mining_results(event, self.balances)
 
+        tip = blockchain.get_chain_tip(self.chain_file)
+        total = get_total_supply(str(self.events_dir))
         if blockchain.validate_chain(self.chain):
-            print("Blockchain loaded successfully")
+            print(f"Restored tip {tip} | Total HLX {total:.4f}")
         else:
             print("Blockchain validation mismatch")
 
@@ -152,6 +158,7 @@ class HelixNode(GossipNode):
             microblock_size=self.microblock_size,
             parent_id=GENESIS_HASH,
             private_key=private_key,
+            registry=self.registry,
         )
         self._store_merkle_tree(event)
         if private_key and event.get("originator_pub"):

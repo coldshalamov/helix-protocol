@@ -1,4 +1,3 @@
-```python
 import json
 from pathlib import Path
 from typing import Dict, Tuple, Any
@@ -130,4 +129,3 @@ __all__ = [
     "apply_mining_results",
     "get_total_supply",
 ]
-```
