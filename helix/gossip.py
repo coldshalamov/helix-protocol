@@ -7,6 +7,8 @@ import threading
 import time
 from typing import Any, Dict
 
+from .config import GENESIS_HASH
+
 
 class LocalGossipNetwork:
     """A simple in-memory broadcast network for :class:`GossipNode`."""
@@ -22,7 +24,13 @@ class LocalGossipNetwork:
     def send(self, sender_id: str, message: Dict[str, Any]) -> None:
         """Broadcast ``message`` from ``sender_id`` to all other nodes."""
         msg_type = message.get("type")
-        log = msg_type in {"NEW_STATEMENT", "MINED_MICROBLOCK", "EVENT_FINALIZED", "FINALIZED"}
+        log = msg_type in {
+            "NEW_STATEMENT",
+            "MINED_MICROBLOCK",
+            "EVENT_FINALIZED",
+            "FINALIZED",
+            "FINALIZED_BLOCK",
+        }
         if log:
             print(f"{sender_id} broadcasting {msg_type}")
         with self._lock:
@@ -48,6 +56,7 @@ class GossipNode:
         self._seen: dict[str, float] = {}
         self._seen_ttl = 300.0  # seconds
         self.network.register(self)
+        self.blockchain: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Messaging helpers
@@ -98,6 +107,39 @@ class GossipNode:
         if self._is_new(message):
             self._mark_seen(message)
             self.network.send(self.node_id, message)
+
+    # ------------------------------------------------------------------
+    # Blockchain helpers
+
+    def broadcast_block(self, block: Dict[str, Any]) -> None:
+        """Broadcast a finalized block to peers."""
+        self.send_message({"type": "FINALIZED_BLOCK", "block": block})
+
+    def _validate_block(self, block: Dict[str, Any]) -> bool:
+        """Return ``True`` if ``block`` correctly links to local chain."""
+        import hashlib, json
+
+        height = block.get("height")
+        if height is None or height != len(self.blockchain):
+            return False
+        parent = self.blockchain[-1]["block_id"] if self.blockchain else GENESIS_HASH
+        if block.get("parent_id") != parent:
+            return False
+        copy = dict(block)
+        block_id = copy.pop("block_id", None)
+        if block_id is None:
+            return False
+        digest = hashlib.sha256(
+            json.dumps(copy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return digest == block_id
+
+    def apply_block(self, block: Dict[str, Any]) -> bool:
+        """Validate and append ``block`` to ``blockchain``."""
+        if not self._validate_block(block):
+            return False
+        self.blockchain.append(block)
+        return True
 
     # ------------------------------------------------------------------
     # Presence handling

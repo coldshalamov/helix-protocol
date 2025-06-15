@@ -5,6 +5,20 @@ from __future__ import annotations
 from .minihelix import G, mine_seed
 
 
+class SeedResult(bytes):
+    """Bytes-like result carrying additional seed chain metadata."""
+
+    def __new__(cls, chain_bytes: bytes, encoded: bytes, depth: int):
+        obj = super().__new__(cls, chain_bytes)
+        obj.encoded = encoded
+        obj.depth = depth
+        return obj
+
+    def __iter__(self):
+        yield self.encoded
+        yield self.depth
+
+
 def _encode_chain(chain: list[bytes]) -> bytes:
     depth = len(chain)
     seed_len = len(chain[0])
@@ -65,7 +79,8 @@ def find_nested_seed(
             current = G(current, N)
             if current == target_block:
                 encoded = _encode_chain(chain)
-                return encoded, len(chain)
+                chain_bytes = b"".join(chain)
+                return SeedResult(chain_bytes, encoded, len(chain))
             chain.append(current)
         nonce += 1
     return None
@@ -119,4 +134,28 @@ def verify_nested_seed(
             return False
     current = G(current, N)
     return current == target_block
+
+
+def hybrid_mine(
+    target_block: bytes, max_depth: int = 10, *, attempts: int = 10_000
+) -> tuple[bytes, int] | None:
+    """Try direct and nested mining, returning ``(seed, depth)`` on success."""
+
+    result = find_nested_seed(
+        target_block,
+        max_depth=max_depth,
+        attempts=attempts,
+    )
+    if result is not None:
+        encoded, depth = result
+        seed_len = encoded[1]
+        base_seed = encoded[2 : 2 + seed_len]
+        return base_seed, depth
+
+    seed = mine_seed(target_block, max_attempts=attempts)
+    if seed is not None:
+        return seed, 1
+
+    return None
+
     

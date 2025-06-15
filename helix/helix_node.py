@@ -31,6 +31,7 @@ class GossipMessageType:
     NEW_STATEMENT = NEW_EVENT
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
+    FINALIZED_BLOCK = "FINALIZED_BLOCK"
 
 
 def simulate_mining(index: int) -> None:
@@ -99,7 +100,7 @@ class HelixNode(GossipNode):
         self.load_state()
 
         # Load blockchain and replay balances
-        from . import blockchain
+        import blockchain
 
         self.chain: list[dict] = blockchain.load_chain(self.chain_file)
         for block in self.chain:
@@ -118,7 +119,7 @@ class HelixNode(GossipNode):
                     continue
             apply_mining_results(event, self.balances)
 
-        if blockchain.validate_chain(self.chain):
+        if blockchain.validate_blockchain(self.chain_file):
             print("Blockchain loaded successfully")
         else:
             print("Blockchain validation mismatch")
@@ -231,7 +232,15 @@ class HelixNode(GossipNode):
             self.submit_seed(evt_id, idx, seed_chain, proof)
 
         if all(event["mined_status"]) and not event.get("finalized"):
-            event_manager.finalize_event(event, node_id=self.node_id)
+            before = len(self.chain)
+            event_manager.finalize_event(
+                event, node_id=self.node_id, chain_file=self.chain_file
+            )
+            self.chain = blockchain.load_chain(self.chain_file)
+            if len(self.chain) > before:
+                block = dict(self.chain[-1])
+                block["height"] = len(self.chain) - 1
+                self.broadcast_block(block)
             self.finalize_event(event)
 
         event_manager.save_event(event, str(self.events_dir))
@@ -319,6 +328,10 @@ class HelixNode(GossipNode):
             if evt_id in self.events:
                 self.events[evt_id]["is_closed"] = True
                 self.finalize_event(self.events[evt_id])
+        elif msg_type == GossipMessageType.FINALIZED_BLOCK:
+            block = message.get("block")
+            if block:
+                self.apply_block(block)
 
     def _message_loop(self) -> None:
         while True:
