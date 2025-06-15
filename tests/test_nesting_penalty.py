@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from helix import event_manager
+from helix import event_manager, minihelix
 
 
 @pytest.fixture(autouse=True)
@@ -12,7 +12,7 @@ def _mock_verify(monkeypatch):
 
 def test_accept_mined_seed_replacement():
     event = event_manager.create_event("abc", microblock_size=3)
-    enc = event_manager.nested_miner.encode_header(3, 1) + b"a"
+    enc = [b"a", minihelix.G(b"a", 3)]
     refund = event_manager.accept_mined_seed(event, 0, enc)
     assert refund == 0
     assert event["seed_depths"][0] == 3
@@ -30,16 +30,14 @@ def test_accept_mined_seed_replacement():
 
 def test_accept_mined_seed_shorter_replacement():
     event = event_manager.create_event("abc", microblock_size=3)
-    enc_long = event_manager.nested_miner.encode_header(2, 4) + b"long" + b"inter"
+    enc_long = [b"long", minihelix.G(b"long", 3)]
     event_manager.accept_mined_seed(event, 0, enc_long)
     original_reward = event["rewards"][0]
 
-    enc_a = event_manager.nested_miner.encode_header(5, 1) + b"a"
+    enc_a = [b"a"] + [minihelix.G(b"a", 3) for _ in range(4)]
     refund = event_manager.accept_mined_seed(event, 0, enc_a)
     expected_reward = event_manager.reward_for_depth(5)
-    hdr = event["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event["seeds"][0][1 : 1 + l] == b"a"
+    assert event["seeds"][0][0] == b"a"
     assert event["seed_depths"][0] == 5
     assert refund == pytest.approx(original_reward - expected_reward)
     assert event["refunds"][0] == refund
@@ -47,21 +45,17 @@ def test_accept_mined_seed_shorter_replacement():
 
 def test_accept_mined_seed_conditions():
     event = event_manager.create_event("abc", microblock_size=3)
-    base = event_manager.nested_miner.encode_header(2, 1) + b"a"
+    base = [b"a", minihelix.G(b"a", 3)]
     event_manager.accept_mined_seed(event, 0, base)
     # different length should not replace
-    refund = event_manager.accept_mined_seed(event, 0, event_manager.nested_miner.encode_header(2, 2) + b"bb")
+    refund = event_manager.accept_mined_seed(event, 0, [b"bb", minihelix.G(b"bb", 3)])
     assert refund == 0
-    hdr = event["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event["seeds"][0][1 : 1 + l] == b"a"
+    assert event["seeds"][0][0] == b"a"
     # higher depth should not replace
-    refund = event_manager.accept_mined_seed(event, 0, event_manager.nested_miner.encode_header(3, 1) + b"c")
+    refund = event_manager.accept_mined_seed(event, 0, [b"c", minihelix.G(b"c", 3), minihelix.G(minihelix.G(b"c",3),3)])
     assert refund == 0
     assert event["seed_depths"][0] == 2
     # same depth should not replace
-    refund = event_manager.accept_mined_seed(event, 0, event_manager.nested_miner.encode_header(2, 1) + b"d")
+    refund = event_manager.accept_mined_seed(event, 0, [b"d", minihelix.G(b"d", 3)])
     assert refund == 0
-    hdr = event["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event["seeds"][0][1 : 1 + l] == b"a"
+    assert event["seeds"][0][0] == b"a"

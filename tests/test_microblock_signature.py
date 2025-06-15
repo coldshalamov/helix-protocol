@@ -33,8 +33,8 @@ def test_signed_microblock_replacement(tmp_path):
     node_b.events[evt_id] = event_manager.create_event("ab", microblock_size=2)
 
     event_b = node_b.events[evt_id]
-    enc = event_manager.nested_miner.encode_header(3, len(b"long")) + b"long"
-    event_manager.accept_mined_seed(event_b, 0, enc)
+    chain_long = [b"long"]
+    event_manager.accept_mined_seed(event_b, 0, chain_long)
 
     seed = b"a"
     depth = 2
@@ -50,15 +50,11 @@ def test_signed_microblock_replacement(tmp_path):
         "signature": sig,
     }
     node_b._handle_message(msg)
-    hdr = event_b["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event_b["seeds"][0][1 : 1 + l] == seed
+    assert event_b["seeds"][0][0] == seed
     assert event_b["seed_depths"][0] == depth
 
     wrong = msg.copy()
     wrong["signature"] = signature_utils.sign_data(b"bad", priv)
     node_b._handle_message(wrong)
-    hdr = event_b["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert event_b["seeds"][0][1 : 1 + l] == seed
+    assert event_b["seeds"][0][0] == seed
 

@@ -110,12 +110,12 @@ def cmd_mine(args: argparse.Namespace) -> None:
             offset += 10_000
             if result is None:
                 continue
-            encoded, depth = result
-            if not nested_miner.verify_nested_seed(encoded, block):
+            chain = result
+            depth = len(chain)
+            if not nested_miner.verify_nested_seed(chain, block):
                 continue
-            event_manager.accept_mined_seed(event, idx, encoded)
-            _, seed_len = nested_miner.decode_header(encoded[0])
-            seed = encoded[1 : 1 + seed_len]
+            event_manager.accept_mined_seed(event, idx, chain)
+            seed = chain[0]
             print(
                 f"\u2714 Block {idx} mined at depth {depth} with seed {seed.hex()}"
             )
@@ -150,12 +150,13 @@ def cmd_remine_microblock(args: argparse.Namespace) -> None:
     if result is None:
         print(f"No seed found for block {index}")
         return
-    encoded, depth = result
-    if not nested_miner.verify_nested_seed(encoded, block):
+    chain = result
+    depth = len(chain)
+    if not nested_miner.verify_nested_seed(chain, block):
         print(f"Seed verification failed for block {index}")
         return
 
-    event_manager.accept_mined_seed(event, index, encoded)
+    event_manager.accept_mined_seed(event, index, chain)
     event_manager.save_event(event, str(events_dir))
     print(f"Remined microblock {index}")
 

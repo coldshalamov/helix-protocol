@@ -153,19 +153,14 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
     blocks = event.get("microblocks", [])
     if len(seeds) == len(blocks) and all(seeds):
         recombined: List[bytes] = []
-        for idx, (enc, block) in enumerate(zip(seeds, blocks)):
-            if not nested_miner.verify_nested_seed(enc, block):
+        for idx, (chain, block) in enumerate(zip(seeds, blocks)):
+            if not nested_miner.verify_nested_seed(chain, block):
                 raise ValueError(f"invalid seed chain for microblock {idx}")
-            depth, seed_len = nested_miner.decode_header(enc[0])
-            offset = 1
-            seed = enc[offset : offset + seed_len]
-            offset += seed_len
-            current = seed
-            for _ in range(1, depth):
-                next_seed = enc[offset : offset + len(block)]
-                offset += len(block)
+
+            current = chain[0] if isinstance(chain, list) else chain
+            for step in (chain[1:] if isinstance(chain, list) else []):
                 current = nested_miner.G(current, len(block))
-                current = next_seed
+                current = step
             final_block = nested_miner.G(current, len(block))
             recombined.append(final_block)
         statement = reassemble_microblocks(recombined)
@@ -230,17 +225,22 @@ def mark_mined(
         if events_dir is not None:
             save_event(event, events_dir)
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes] | bytes, *, miner: Optional[str] = None) -> float:
     """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
 
     Only the first seed in ``seed_chain`` is validated against the microblock
     size.  Nested seeds are merely checked for correctness via
     :func:`nested_miner.verify_nested_seed`.
     """
-    seed = seed_chain[0]
-    depth = len(seed_chain)
+    if isinstance(seed_chain, (bytes, bytearray)):
+        chain = [bytes(seed_chain)]
+    else:
+        chain = list(seed_chain)
+
+    seed = chain[0]
+    depth = len(chain)
     block = event["microblocks"][index]
-    assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
+    assert nested_miner.verify_nested_seed(chain, block), "invalid seed chain"
 
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
@@ -251,7 +251,7 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         raise ValueError("seed length exceeds microblock size")
 
     if event["seeds"][index] is None:
-        event["seeds"][index] = seed_chain
+        event["seeds"][index] = chain
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
@@ -274,7 +274,7 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     if replace:
         refund = event["rewards"][index] - reward
-        event["seeds"][index] = seed_chain
+        event["seeds"][index] = chain
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
@@ -297,7 +297,15 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data = event.copy()
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
-        data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+        formatted = []
+        for s in data["seeds"]:
+            if isinstance(s, list):
+                formatted.append([step.hex() for step in s])
+            elif isinstance(s, (bytes, bytearray)):
+                formatted.append(s.hex())
+            else:
+                formatted.append(None)
+        data["seeds"] = formatted
     if "merkle_tree" in data:
         data["merkle_tree"] = data["merkle_tree"]
     with open(filename, "w", encoding="utf-8") as f:
@@ -347,7 +355,15 @@ def load_event(path: str) -> Dict[str, Any]:
         data = json.load(f)
     data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
     if "seeds" in data:
-        data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+        parsed = []
+        for s in data["seeds"]:
+            if isinstance(s, list):
+                parsed.append([bytes.fromhex(step) for step in s])
+            elif isinstance(s, str) and s:
+                parsed.append(bytes.fromhex(s))
+            else:
+                parsed.append(None)
+        data["seeds"] = parsed
     if "merkle_tree" not in data and data.get("microblocks"):
         root, tree = build_merkle_tree(data["microblocks"])
         data["merkle_tree"] = tree
