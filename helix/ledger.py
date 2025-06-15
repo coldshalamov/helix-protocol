@@ -21,6 +21,26 @@ def save_balances(balances: Dict[str, float], path: str) -> None:
         json.dump(balances, f, indent=2)
 
 
+def get_total_supply(path: str = "supply.json") -> float:
+    """Return total HLX supply stored in ``path``.
+
+    If the file does not exist, return ``0.0``.
+    """
+    file = Path(path)
+    if not file.exists():
+        return 0.0
+    with open(file, "r", encoding="utf-8") as f:
+        return float(json.load(f))
+
+
+def update_total_supply(delta: float, path: str = "supply.json") -> None:
+    """Increase total supply by ``delta`` and persist the new value."""
+    total = get_total_supply(path) + float(delta)
+    file = Path(path)
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(total, f)
+
+
 def compression_stats(events_dir: str) -> Tuple[int, float]:
     """Return total bytes saved and HLX earned across finalized events.
 
@@ -86,4 +106,6 @@ __all__ = [
     "save_balances",
     "compression_stats",
     "apply_mining_results",
+    "get_total_supply",
+    "update_total_supply",
 ]

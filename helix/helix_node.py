@@ -16,7 +16,12 @@ from . import (
     merkle,
 )
 from .config import GENESIS_HASH
-from .ledger import load_balances, save_balances, apply_mining_results
+from .ledger import (
+    load_balances,
+    save_balances,
+    apply_mining_results,
+    update_total_supply,
+)
 from .gossip import GossipNode, LocalGossipNetwork
 from .network import SocketGossipNetwork
 
@@ -210,6 +215,9 @@ class HelixNode(GossipNode):
             if pub:
                 self.balances[pub] = self.balances.get(pub, 0.0) + amt
         apply_mining_results(event, self.balances)
+        rewards = event.get("rewards", [])
+        refunds = event.get("refunds", [])
+        update_total_supply(sum(rewards) + sum(refunds))
         save_balances(self.balances, self.balances_file)
         event_manager.save_event(event, str(self.events_dir))
         self._send({"type": GossipMessageType.FINALIZED, "event_id": event["header"]["statement_id"]})
