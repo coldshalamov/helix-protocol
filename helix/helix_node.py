@@ -8,7 +8,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import event_manager, minihelix, nested_miner, signature_utils
+from . import (
+    event_manager,
+    minihelix,
+    nested_miner,
+    signature_utils,
+    merkle,
+)
 from .config import GENESIS_HASH
 from .ledger import load_balances, save_balances, apply_mining_results
 from .gossip import GossipNode, LocalGossipNetwork
@@ -78,9 +84,17 @@ class HelixNode(GossipNode):
         self.genesis = json.loads(data.decode("utf-8"))
 
         self.events: Dict[str, Dict[str, Any]] = {}
+        # Store Merkle trees for quick proof generation and validation
+        self.merkle_trees: Dict[str, list[list[bytes]]] = {}
         self.balances: Dict[str, float] = load_balances(self.balances_file)
 
         self.load_state()
+
+    def _store_merkle_tree(self, event: Dict[str, Any]) -> None:
+        """Compute and store the Merkle tree for ``event`` microblocks."""
+        evt_id = event["header"]["statement_id"]
+        tree = merkle.build_merkle_tree(event["microblocks"])
+        self.merkle_trees[evt_id] = tree
 
     def load_state(self) -> None:
         for path in self.events_dir.glob("*.json"):
@@ -107,6 +121,7 @@ class HelixNode(GossipNode):
             parent_id=GENESIS_HASH,
             private_key=private_key,
         )
+        self._store_merkle_tree(event)
         if private_key and event.get("originator_pub"):
             fee = event["header"]["block_count"]
             event["header"]["gas_fee"] = fee
@@ -120,6 +135,7 @@ class HelixNode(GossipNode):
         event_manager.validate_parent(event)
         evt_id = event["header"]["statement_id"]
         self.events[evt_id] = event
+        self._store_merkle_tree(event)
 
     def submit_event(self, statement: str, *, private_key: str | None = None) -> Dict[str, Any]:
         event = self.create_event(statement, private_key=private_key)
@@ -151,12 +167,19 @@ class HelixNode(GossipNode):
             depth, seed_len = nested_miner.decode_header(encoded[0])
             event_manager.accept_mined_seed(event, idx, encoded, miner=self.node_id)
 
+            tree = self.merkle_trees.get(evt_id)
+            if tree is None:
+                tree = merkle.build_merkle_tree(event["microblocks"])
+                self.merkle_trees[evt_id] = tree
+            proof = [h.hex() for h in merkle.merkle_proof(tree, idx)]
+
             message = {
                 "type": GossipMessageType.MINED_MICROBLOCK,
                 "event_id": evt_id,
                 "index": idx,
                 "seed": encoded[1 : 1 + seed_len].hex(),
                 "depth": depth,
+                "proof": proof,
             }
             if self.public_key and self.private_key:
                 payload = f"{evt_id}:{idx}:{encoded[1 : 1 + seed_len].hex()}:{depth}".encode("utf-8")
@@ -196,6 +219,7 @@ class HelixNode(GossipNode):
             idx = message.get("index")
             seed_hex = message.get("seed")
             depth = int(message.get("depth", 1))
+            proof_hex = message.get("proof")
             pub = message.get("pubkey")
             sig = message.get("signature")
             if evt_id not in self.events:
@@ -214,6 +238,19 @@ class HelixNode(GossipNode):
                 current = minihelix.G(current, len(event["microblocks"][idx]))
                 chain.append(current)
             encoded = nested_miner.encode_header(depth, len(seed)) + b"".join(chain)
+
+            if proof_hex is None:
+                return
+            tree = self.merkle_trees.get(evt_id)
+            if tree is None:
+                tree = merkle.build_merkle_tree(event["microblocks"])
+                self.merkle_trees[evt_id] = tree
+            proof = [bytes.fromhex(p) for p in proof_hex]
+            root = merkle.merkle_root(tree)
+            block = event["microblocks"][idx]
+            if not merkle.verify_merkle_proof(block, proof, root, idx):
+                return
+
             try:
                 event_manager.accept_mined_seed(event, idx, encoded)
             except Exception:

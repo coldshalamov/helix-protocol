@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .minihelix import G
+from . import minihelix
 
 
 def encode_header(depth: int, seed_len: int) -> bytes:
@@ -40,14 +41,7 @@ def find_nested_seed(
     start_nonce: int = 0,
     attempts: int = 10_000,
 ) -> tuple[bytes, int] | None:
-    """Deterministically search for a nested seed chain yielding ``target_block``.
-
-    Seeds are enumerated in increasing length starting at one byte. ``start_nonce``
-    selects the offset into this enumeration and ``attempts`` controls how many
-    seeds are tested. The outermost seed length is always strictly less than the
-    target size while intermediate seeds may be any length.
-    """
-
+    """Deterministically search for a nested seed chain yielding ``target_block``."""
     def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
         for length in range(1, max_len + 1):
             count = 256 ** length
@@ -75,41 +69,47 @@ def find_nested_seed(
     return None
 
 
-def verify_nested_seed(seed_chain: bytes | list[bytes], target_block: bytes) -> bool:
-    """Return ``True`` if ``seed_chain`` yields ``target_block`` under iterative ``G``."""
-
-    if not seed_chain:
+def verify_nested_seed(encoded: bytes | list[bytes], target_block: bytes) -> bool:
+    """Return ``True`` if ``encoded`` regenerates ``target_block``."""
+    if not encoded:
         return False
 
     N = len(target_block)
 
-    if isinstance(seed_chain, (bytes, bytearray)):
-        chain = _decode_chain(seed_chain, N)
+    if isinstance(encoded, (bytes, bytearray)):
+        try:
+            chain = _decode_chain(encoded, N)
+        except Exception:
+            return False
     else:
-        chain = list(seed_chain)
+        chain = list(encoded)
 
     first = chain[0]
-    if len(first) > N or len(first) == 0:
+    if len(first) == 0 or len(first) > N:
         return False
 
     current = first
     for next_seed in chain[1:]:
         current = G(current, N)
-        if current != next_seed:
+        if next_seed != current:
             return False
 
     current = G(current, N)
     return current == target_block
 
 
-def hybrid_mine(target_block: bytes, max_depth: int = 10) -> tuple[bytes, int] | None:
-    """Return a seed and depth that generate ``target_block`` using nested mining."""
-    result = find_nested_seed(target_block, max_depth=max_depth)
-    if result is None:
-        return None
-    encoded, depth = result
-    chain = _decode_chain(encoded, len(target_block))
-    return chain[0], depth
+def hybrid_mine(target_block: bytes, max_depth: int = 10, *, attempts: int = 1_000_000) -> tuple[bytes, int] | None:
+    """Attempt nested mining first, fall back to flat mining if needed."""
+    result = find_nested_seed(target_block, max_depth=max_depth, attempts=attempts)
+    if result is not None:
+        encoded, depth = result
+        chain = _decode_chain(encoded, len(target_block))
+        return chain[0], depth
+
+    seed = minihelix.mine_seed(target_block, max_attempts=attempts)
+    if seed is not None:
+        return seed, 1
+    return None
 
 
 __all__ = [
