@@ -9,6 +9,7 @@ from . import signature_utils
 from . import betting_interface
 from .ledger import load_balances
 from .gossip import GossipNode, LocalGossipNetwork
+from .blockchain import load_chain
 
 EVENTS_DIR = Path("events")
 BALANCES_FILE = Path("balances.json")
@@ -125,6 +126,45 @@ def cmd_reassemble_statement(args: argparse.Namespace) -> None:
     print(statement)
 
 
+def cmd_view_chain(args: argparse.Namespace) -> None:
+    """Show blockchain information with compression stats."""
+    base = Path(args.data_dir)
+    chain_path = base / "blockchain.jsonl"
+    if not chain_path.exists():
+        alt = base / "chain.json"
+        if alt.exists():
+            chain_path = alt
+    blocks = load_chain(str(chain_path))
+    if not blocks:
+        print("No chain data found")
+        return
+
+    events_dir = base / "events"
+    for height, block in enumerate(blocks):
+        event_ids = block.get("event_ids") or block.get("events") or [block.get("event_id")]
+        if isinstance(event_ids, list):
+            event_id = event_ids[0] if event_ids else None
+        else:
+            event_id = event_ids
+        block_id = block.get("block_id") or block.get("id")
+        saved = 0
+        if event_id:
+            event_path = events_dir / f"{event_id}.json"
+            if event_path.exists():
+                event = event_manager.load_event(str(event_path))
+                micro_size = event.get("header", {}).get(
+                    "microblock_size", event_manager.DEFAULT_MICROBLOCK_SIZE
+                )
+                for seed in event.get("seeds", []):
+                    if seed is None:
+                        continue
+                    saved += max(0, micro_size - len(seed))
+        if args.summary:
+            print(f"{height} {event_id} {block_id} {saved}")
+        else:
+            print(f"height={height} event_id={event_id} block_id={block_id} saved={saved}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -173,6 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--event-id", help="Event identifier")
     group.add_argument("--path", help="Path to event JSON file")
     p_reasm.set_defaults(func=cmd_reassemble_statement)
+
+    p_chain = sub.add_parser("view-chain", help="Show blockchain data")
+    p_chain.add_argument("--data-dir", default="data", help="Directory containing chain and events")
+    p_chain.add_argument("--summary", action="store_true", help="Summary output")
+    p_chain.set_defaults(func=cmd_view_chain)
 
     return parser
 
