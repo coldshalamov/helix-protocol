@@ -24,6 +24,7 @@ from .ledger import (
 )
 from .gossip import GossipNode, LocalGossipNetwork
 from .network import SocketGossipNetwork
+import blockchain
 
 
 class GossipMessageType:
@@ -117,6 +118,8 @@ class HelixNode(GossipNode):
                 except Exception:
                     continue
             apply_mining_results(event, self.balances)
+
+        self.chain_tip = self.chain[-1]["block_id"] if self.chain else GENESIS_HASH
 
         if blockchain.validate_chain(self.chain):
             print("Blockchain loaded successfully")
@@ -231,27 +234,66 @@ class HelixNode(GossipNode):
             self.submit_seed(evt_id, idx, seed_chain, proof)
 
         if all(event["mined_status"]) and not event.get("finalized"):
-            event_manager.finalize_event(event, node_id=self.node_id)
             self.finalize_event(event)
 
         event_manager.save_event(event, str(self.events_dir))
 
-    def finalize_event(self, event: Dict[str, Any]) -> None:
+    def finalize_event(self, event: Dict[str, Any], *, block: Dict[str, Any] | None = None) -> None:
+        """Finalize ``event`` and record a blockchain entry.
+
+        If ``block`` is provided it is appended to the local chain and the event
+        is finalized without broadcasting. When ``block`` is ``None`` a new block
+        header is created, appended to the persistent chain and broadcast to
+        peers.
+        """
+
         if not event.get("is_closed") or event.get("finalized"):
             return
+
+        evt_id = event["header"]["statement_id"]
+
         for bet in event.get("bets", {}).get("YES", []):
             pub = bet.get("pubkey")
             amt = float(bet.get("amount", 0))
             if pub:
                 self.balances[pub] = self.balances.get(pub, 0.0) + amt
+
         apply_mining_results(event, self.balances)
         rewards = event.get("rewards", [])
         refunds = event.get("refunds", [])
         update_total_supply(sum(rewards) + sum(refunds))
         save_balances(self.balances, self.balances_file)
+
+        if block is None:
+            parent = self.chain[-1]["block_id"] if self.chain else GENESIS_HASH
+            height = len(self.chain)
+            root = event["header"].get("merkle_root")
+            if isinstance(root, (bytes, bytearray)):
+                root_hex = root.hex()
+            else:
+                root_hex = root
+            block = {
+                "event_id": evt_id,
+                "parent_id": parent,
+                "height": height,
+                "timestamp": time.time(),
+                "merkle_root": root_hex,
+            }
+            bid = hashlib.sha256(json.dumps(block, sort_keys=True).encode("utf-8")).hexdigest()
+            block["block_id"] = bid
+            broadcast = True
+        else:
+            broadcast = False
+
+        blockchain.append_block(block, path=self.chain_file)
+        self.chain.append(block)
+        self.chain_tip = block["block_id"]
+
         event_manager.save_event(event, str(self.events_dir))
         event["finalized"] = True
-        self._send({"type": GossipMessageType.FINALIZED, "event_id": event["header"]["statement_id"]})
+
+        if broadcast:
+            self._send({"type": GossipMessageType.FINALIZED, "event_id": evt_id, "block": block})
 
     def _handle_message(self, message: Dict[str, Any]) -> None:
         msg_type = message.get("type")
@@ -316,9 +358,11 @@ class HelixNode(GossipNode):
                 self.finalize_event(event)
         elif msg_type == GossipMessageType.FINALIZED:
             evt_id = message.get("event_id")
+            block = message.get("block")
             if evt_id in self.events:
-                self.events[evt_id]["is_closed"] = True
-                self.finalize_event(self.events[evt_id])
+                event = self.events[evt_id]
+                event["is_closed"] = True
+                self.finalize_event(event, block=block)
 
     def _message_loop(self) -> None:
         while True:
