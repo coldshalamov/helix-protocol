@@ -34,6 +34,20 @@ def calculate_reward(base: float, depth: int) -> float:
     reward = base / depth
     return round(reward, 4)
 
+def compute_reward(seed: bytes, original_size: int) -> float:
+    """Return mining reward based on compression achieved.
+
+    ``seed`` is the outermost seed used to regenerate a microblock.
+    ``original_size`` is the length of the microblock prior to compression.
+
+    The reward scales linearly with the number of bytes saved relative to the
+    original size.
+    """
+    if original_size <= 0:
+        raise ValueError("original_size must be > 0")
+    saved = max(0, original_size - len(seed))
+    return BASE_REWARD * saved / original_size
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -199,11 +213,17 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
         pot -= refund
 
     miners = event.get("miners", [])
-    depths = event.get("seed_depths", [])
-    for miner_id, depth in zip(miners, depths):
-        if miner_id is None or depth <= 0:
+    seeds = event.get("seeds", [])
+    blocks = event.get("microblocks", [])
+    for miner_id, seed_chain, block in zip(miners, seeds, blocks):
+        if miner_id is None or seed_chain is None:
             continue
-        reward = calculate_reward(BASE_REWARD, depth)
+        if isinstance(seed_chain, (bytes, bytearray)):
+            _, seed_len = nested_miner.decode_header(seed_chain[0])
+            seed = seed_chain[1 : 1 + seed_len]
+        else:
+            seed = seed_chain[0]
+        reward = compute_reward(seed, len(block))
         payouts[miner_id] = payouts.get(miner_id, 0.0) + reward
 
     if winner_total > 0:
@@ -237,13 +257,18 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
     size.  Nested seeds are merely checked for correctness via
     :func:`nested_miner.verify_nested_seed`.
     """
-    seed = seed_chain[0]
-    depth = len(seed_chain)
+    if isinstance(seed_chain, (bytes, bytearray)):
+        depth, seed_len = nested_miner.decode_header(seed_chain[0])
+        seed = seed_chain[1 : 1 + seed_len]
+    else:
+        seed = seed_chain[0]
+        depth = len(seed_chain)
+        seed_len = len(seed)
     block = event["microblocks"][index]
     assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
 
     penalty = nesting_penalty(depth)
-    reward = reward_for_depth(depth)
+    reward = compute_reward(seed, len(block))
     refund = 0.0
 
     microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
@@ -373,6 +398,7 @@ __all__ = [
     "nesting_penalty",
     "reward_for_depth",
     "calculate_reward",
+    "compute_reward",
     "accept_mined_seed",
     "finalize_event",
     "save_event",
