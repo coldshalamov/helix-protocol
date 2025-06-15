@@ -19,20 +19,20 @@ DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 BASE_REWARD = 1.0
 
-def nesting_penalty(depth: int) -> int:
-    if depth < 1:
-        raise ValueError("depth must be >= 1")
-    return depth - 1
 
-def reward_for_depth(depth: int) -> float:
-    return BASE_REWARD / depth
+def compute_reward(seed: bytes, original_size: int) -> float:
+    """Return a placeholder reward based on ``seed`` size.
 
-def calculate_reward(base: float, depth: int) -> float:
-    """Return the scaled reward for ``depth``."""
-    if depth < 1:
-        raise ValueError("depth must be >= 1")
-    reward = base / depth
-    return round(reward, 4)
+    This will later be tied to storage savings.  Currently it simply
+    returns the number of bytes saved when ``seed`` replaces a block of
+    size ``original_size``.
+    """
+
+    if original_size <= 0:
+        raise ValueError("original_size must be > 0")
+
+    saved = max(original_size - len(seed), 0)
+    return float(saved)
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -199,11 +199,21 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
         pot -= refund
 
     miners = event.get("miners", [])
-    depths = event.get("seed_depths", [])
-    for miner_id, depth in zip(miners, depths):
-        if miner_id is None or depth <= 0:
+    seeds = event.get("seeds", [])
+    blocks = event.get("microblocks", [])
+    for idx, miner_id in enumerate(miners):
+        if miner_id is None:
             continue
-        reward = calculate_reward(BASE_REWARD, depth)
+        if idx >= len(seeds) or seeds[idx] is None:
+            continue
+        seed_chain = seeds[idx]
+        block = blocks[idx] if idx < len(blocks) else b""
+        if isinstance(seed_chain, (bytes, bytearray)):
+            _, seed_len = nested_miner.decode_header(seed_chain[0])
+            seed = seed_chain[1 : 1 + seed_len]
+        else:
+            seed = seed_chain[0]
+        reward = compute_reward(seed, len(block))
         payouts[miner_id] = payouts.get(miner_id, 0.0) + reward
 
     if winner_total > 0:
@@ -230,20 +240,24 @@ def mark_mined(
         if events_dir is not None:
             save_event(event, events_dir)
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes] | bytes, *, miner: Optional[str] = None) -> float:
     """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
 
     Only the first seed in ``seed_chain`` is validated against the microblock
     size.  Nested seeds are merely checked for correctness via
     :func:`nested_miner.verify_nested_seed`.
     """
-    seed = seed_chain[0]
-    depth = len(seed_chain)
     block = event["microblocks"][index]
+    if isinstance(seed_chain, (bytes, bytearray)):
+        depth, seed_len = nested_miner.decode_header(seed_chain[0])
+        seed = seed_chain[1 : 1 + seed_len]
+    else:
+        seed = seed_chain[0]
+        depth = len(seed_chain)
     assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
 
-    penalty = nesting_penalty(depth)
-    reward = reward_for_depth(depth)
+    penalty = depth - 1
+    reward = compute_reward(seed, len(block))
     refund = 0.0
 
     microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
@@ -264,7 +278,11 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     old_chain = event["seeds"][index]
     old_depth = event["seed_depths"][index]
-    old_seed = old_chain[0] if isinstance(old_chain, list) else old_chain
+    if isinstance(old_chain, (bytes, bytearray)):
+        _, old_len = nested_miner.decode_header(old_chain[0])
+        old_seed = old_chain[1 : 1 + old_len]
+    else:
+        old_seed = old_chain[0]
 
     replace = False
     if len(seed) < len(old_seed):
@@ -370,9 +388,7 @@ __all__ = [
     "build_merkle_tree",
     "create_event",
     "mark_mined",
-    "nesting_penalty",
-    "reward_for_depth",
-    "calculate_reward",
+    "compute_reward",
     "accept_mined_seed",
     "finalize_event",
     "save_event",
