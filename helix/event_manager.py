@@ -58,6 +58,34 @@ def reassemble_microblocks(blocks: List[bytes]) -> str:
     payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
     return payload.decode("utf-8")
 
+def build_merkle_tree(blocks: List[bytes]) -> Tuple[str, List[List[str]]]:
+    """Return the Merkle root and full tree for ``blocks``.
+
+    Leaves are SHA-256 hashes of each microblock. Each parent node is the
+    SHA-256 hash of the concatenated child hashes. When a level has an odd
+    number of nodes, the last hash is duplicated.
+    """
+
+    if not blocks:
+        raise ValueError("no blocks to build merkle tree")
+
+    level: List[bytes] = [hashlib.sha256(b).digest() for b in blocks]
+    tree: List[List[bytes]] = [level]
+
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level.append(level[-1])
+        next_level = [
+            hashlib.sha256(level[i] + level[i + 1]).digest()
+            for i in range(0, len(level), 2)
+        ]
+        tree.append(next_level)
+        level = next_level
+
+    root_hex = level[0].hex()
+    tree_hex: List[List[str]] = [[h.hex() for h in lvl] for lvl in tree]
+    return root_hex, tree_hex
+
 def create_event(
     statement: str,
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
@@ -69,6 +97,7 @@ def create_event(
     microblocks, block_count, total_len = split_into_microblocks(
         statement, microblock_size
     )
+    merkle_root, merkle_tree = build_merkle_tree(microblocks)
     statement_id = sha256(statement.encode("utf-8"))
     if registry is not None:
         if registry.has_id(statement_id):
@@ -84,6 +113,7 @@ def create_event(
         "microblock_size": microblock_size,
         "block_count": block_count,
         "parent_id": parent_id,
+        "merkle_root": merkle_root,
     }
 
     originator_pub: Optional[str] = None
@@ -98,6 +128,7 @@ def create_event(
         "header": header,
         "statement": statement,
         "microblocks": microblocks,
+        "merkle_tree": merkle_tree,
         "mined_status": [False] * block_count,
         "seeds": [None] * block_count,
         "seed_depths": [0] * block_count,
@@ -267,6 +298,8 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    if "merkle_tree" in data:
+        data["merkle_tree"] = data["merkle_tree"]
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
@@ -315,6 +348,12 @@ def load_event(path: str) -> Dict[str, Any]:
     data["microblocks"] = [bytes.fromhex(b) for b in data.get("microblocks", [])]
     if "seeds" in data:
         data["seeds"] = [bytes.fromhex(s) if isinstance(s, str) and s else None for s in data["seeds"]]
+    if "merkle_tree" not in data and data.get("microblocks"):
+        root, tree = build_merkle_tree(data["microblocks"])
+        data["merkle_tree"] = tree
+        if "header" in data:
+            data["header"].setdefault("merkle_root", root)
+    block_count = len(data.get("microblocks", []))
     block_count = len(data.get("microblocks", []))
     data.setdefault("seed_depths", [0] * block_count)
     data.setdefault("penalties", [0] * block_count)
@@ -328,6 +367,7 @@ __all__ = [
     "FINAL_BLOCK_PADDING_BYTE",
     "split_into_microblocks",
     "reassemble_microblocks",
+    "build_merkle_tree",
     "create_event",
     "mark_mined",
     "nesting_penalty",
