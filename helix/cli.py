@@ -74,7 +74,16 @@ def cmd_submit_statement(args: argparse.Namespace) -> None:
     private_key = None
     if args.keyfile:
         _, private_key = su.load_keys(args.keyfile)
-    event = event_manager.create_event(args.statement, private_key=private_key)
+    microblock_size = (
+        args.microblock_size
+        if args.microblock_size is not None
+        else event_manager.DEFAULT_MICROBLOCK_SIZE
+    )
+    event = event_manager.create_event(
+        args.statement,
+        microblock_size=microblock_size,
+        private_key=private_key,
+    )
     path = event_manager.save_event(event, str(events_dir))
     print(f"Statement saved to {path}")
     print(f"Statement ID: {event['header']['statement_id']}")
@@ -353,6 +362,11 @@ def main(argv: list[str] | None = None) -> None:
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
     p_submit.add_argument("statement", help="Text of the statement")
     p_submit.add_argument("--keyfile", help="File containing originator keys")
+    p_submit.add_argument(
+        "--microblock-size",
+        type=int,
+        help="Size of microblocks in bytes",
+    )
     p_submit.set_defaults(func=cmd_submit_statement)
 
     p_mine = sub.add_parser("mine", help="Mine microblocks for an event")
