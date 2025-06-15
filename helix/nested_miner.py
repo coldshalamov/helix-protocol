@@ -1,36 +1,39 @@
-"""Nested MiniHelix mining utilities."""
-
-from __future__ import annotations
-
-import os
-import random
-
-from .minihelix import G
-
-def encode_header(depth: int, seed_len: int) -> bytes:
-    """Return a single-byte header encoding ``depth`` and ``seed_len``."""
-    if not 1 <= depth <= 15:
-        raise ValueError("depth must be 1-15")
-    if not 1 <= seed_len <= 16:
-        raise ValueError("seed_len must be 1-16")
-    return bytes([(depth << 4) | (seed_len - 1)])
-
-def decode_header(b: int) -> tuple[int, int]:
-    """Decode ``b`` into ``(depth, seed_len)``."""
-    depth = (b >> 4) & 0x0F
-    seed_len = (b & 0x0F) + 1
-    if depth == 0 or seed_len < 1 or seed_len > 16:
-        raise ValueError("invalid header")
-    return depth, seed_len
-
 def find_nested_seed(
-    target_block: bytes, max_depth: int = 3, *, attempts: int = 1_000_000
-) -> tuple[bytes, int] | None:
-    """Search for a seed that produces ``target_block`` through nested ``G``.
+    target_block: bytes,
+    max_depth: int = 10,
+    *,
+    start_nonce: int = 0,
+    attempts: int = 10_000,
+) -> tuple[list[bytes], int] | None:
+    """Deterministically search for a nested seed chain yielding ``target_block``.
 
-    Returns a tuple of ``(seed_chain, depth)`` where ``seed_chain`` contains
-    the intermediate seeds leading to ``target_block``.  ``depth`` is the
-    number of ``G`` applications required.
+    Seeds are enumerated in increasing length starting at one byte. ``start_nonce``
+    selects the offset into this enumeration and ``attempts`` controls how many
+    seeds are tested. The outermost seed length is always strictly less than the
+    target size while intermediate seeds may be any length.
     """
 
+    def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
+        for length in range(1, max_len):
+            count = 256 ** length
+            if nonce < count:
+                return nonce.to_bytes(length, "big")
+            nonce -= count
+        return None
+
     N = len(target_block)
+    nonce = start_nonce
+    for _ in range(attempts):
+        seed = _seed_from_nonce(nonce, N)
+        if seed is None:
+            return None
+        chain = [seed]
+        current = seed
+        for depth in range(1, max_depth + 1):
+            current = G(current, N)
+            if current == target_block:
+                return chain, depth
+            if depth < max_depth:
+                chain.append(current)
+        nonce += 1
+    return None

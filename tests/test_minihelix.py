@@ -25,24 +25,25 @@ def test_verify_seed_false():
     assert not mh.verify_seed(b"\x03", block)
 
 
-def test_find_nested_seed_simple(monkeypatch):
+def test_find_nested_seed_simple():
     N = 8
     base_seed = b"abc"
     inter1 = mh.G(base_seed, N)
     inter2 = mh.G(inter1, N)
     block = mh.G(inter2, N)
 
-    def fake_randint(a, b):
-        return len(base_seed)
+    start_nonce = 0
+    for length in range(1, N):
+        count = 256 ** length
+        if length < len(base_seed):
+            start_nonce += count
+        elif length == len(base_seed):
+            start_nonce += int.from_bytes(base_seed, "big")
+            break
 
-    def fake_urandom(n):
-        assert n == len(base_seed)
-        return base_seed
-
-    monkeypatch.setattr(nested_miner.random, "randint", fake_randint)
-    monkeypatch.setattr(nested_miner.os, "urandom", fake_urandom)
-
-    result = nested_miner.find_nested_seed(block, max_depth=3, attempts=1)
+    result = nested_miner.find_nested_seed(
+        block, max_depth=3, start_nonce=start_nonce, attempts=1
+    )
     assert result is not None, "find_nested_seed did not return a result"
     encoded, depth = result
     print("Returned chain", encoded, "depth", depth)

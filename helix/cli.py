@@ -99,10 +99,16 @@ def cmd_mine(args: argparse.Namespace) -> None:
     for idx, block in enumerate(event["microblocks"]):
         if event["mined_status"][idx]:
             continue
+        offset = 0
         while True:
-            result = nested_miner.find_nested_seed(block, max_depth=10)
+            result = nested_miner.find_nested_seed(
+                block,
+                max_depth=10,
+                start_nonce=offset,
+                attempts=10_000,
+            )
+            offset += 10_000
             if result is None:
-                # keep searching without aborting early
                 continue
             encoded, depth = result
             if not nested_miner.verify_nested_seed(encoded, block):
