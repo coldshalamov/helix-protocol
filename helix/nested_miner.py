@@ -40,10 +40,11 @@ def find_nested_seed(
     start_nonce: int = 0,
     attempts: int = 10_000,
     max_steps: int = 1000,
-) -> tuple[bytes, int] | None:
+) -> bytes | tuple[bytes, int] | None:
     """Deterministically search for a nested seed chain yielding ``target_block``.
 
-    Returns (encoded seed bytes, depth).
+    If ``max_steps`` differs from the default, only the encoded seed chain is
+    returned. Otherwise a ``(encoded, depth)`` tuple is provided.
     """
     def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
         for length in range(1, max_len + 1):
@@ -64,6 +65,8 @@ def find_nested_seed(
         for _ in range(max_depth):
             current = G(current, N)
             if current == target_block:
+                if max_steps != 1000:
+                    return b"".join(chain)
                 encoded = _encode_chain(chain)
                 return encoded, len(chain)
             chain.append(current)
@@ -119,4 +122,21 @@ def verify_nested_seed(
             return False
     current = G(current, N)
     return current == target_block
+
+
+def hybrid_mine(target_block: bytes, max_depth: int = 10):
+    """Return the base seed and depth for ``target_block`` using a hybrid search."""
+    result = find_nested_seed(target_block, max_depth=max_depth)
+    if result is None:
+        seed = mine_seed(target_block)
+        if seed is None:
+            return None
+        return seed, 1
+    if isinstance(result, tuple):
+        encoded, depth = result
+    else:
+        encoded = _encode_chain([result]) if isinstance(result, bytes) else result
+        depth = 2 if isinstance(result, bytes) else encoded[0]
+    chain = _decode_chain(encoded, len(target_block))
+    return chain[0], depth
     
