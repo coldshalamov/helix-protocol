@@ -90,47 +90,37 @@ def find_nested_seed(
 
 
 def verify_nested_seed(seed_chain: list[bytes] | bytes, target_block: bytes) -> bool:
-    """Return True if ``seed_chain`` regenerates ``target_block``.
+    """Return ``True`` if ``seed_chain`` regenerates ``target_block``.
 
-    Accepts either a list of seed steps or a flat byte-encoded chain.
+    ``seed_chain`` may be a list of seed steps or a raw byte sequence
+    containing each step concatenated together.  No header or depth
+    encoding is assumed.
     """
+
+    N = len(target_block)
+
     if isinstance(seed_chain, (bytes, bytearray)):
-        if not seed_chain:
+        if not seed_chain or len(seed_chain) % N != 0:
             return False
-        depth, seed_len = decode_header(seed_chain[0])
-        N = len(target_block)
-        expected_len = 1 + seed_len + (depth - 1) * N
-        if len(seed_chain) != expected_len:
-            return False
-
-        offset = 1
-        seed = seed_chain[offset : offset + seed_len]
-        if len(seed) == 0 or len(seed) > N:
-            return False
-        offset += seed_len
-        current = seed
-        for _ in range(1, depth):
-            current = G(current, N)
-            if current != seed_chain[offset : offset + N]:
-                return False
-            offset += N
-
-        current = G(current, N)
-        return current == target_block
+        steps = [seed_chain[i : i + N] for i in range(0, len(seed_chain), N)]
     else:
-        # List of bytes version
         if not seed_chain:
             return False
-        N = len(target_block)
-        current = seed_chain[0]
-        if len(current) == 0 or len(current) > N:
+        steps = list(seed_chain)
+        if len(steps[0]) == 0 or len(steps[0]) > N:
             return False
-        for step in seed_chain[1:]:
-            current = G(current, N)
-            if current != step:
+        for step in steps[1:]:
+            if len(step) != N:
                 return False
+
+    current = steps[0]
+    for step in steps[1:]:
         current = G(current, N)
-        return current == target_block
+        if current != step:
+            return False
+
+    current = G(current, N)
+    return current == target_block
 
 
 def hybrid_mine(

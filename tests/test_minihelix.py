@@ -55,6 +55,7 @@ def test_find_nested_seed_simple():
         + inter2
     )
     assert encoded == expected, "incorrect seed encoding"
-    assert nested_miner.verify_nested_seed(encoded, block), "seed chain failed verification"
+    chain = nested_miner._decode_chain(encoded, N)
+    assert nested_miner.verify_nested_seed(chain, block), "seed chain failed verification"
     print("Nested seed search SUCCESS")
 

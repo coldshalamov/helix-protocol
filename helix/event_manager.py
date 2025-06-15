@@ -154,18 +154,17 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
     if len(seeds) == len(blocks) and all(seeds):
         recombined: List[bytes] = []
         for idx, (enc, block) in enumerate(zip(seeds, blocks)):
-            if not nested_miner.verify_nested_seed(enc, block):
+            chain = (
+                nested_miner._decode_chain(enc, len(block))
+                if isinstance(enc, (bytes, bytearray))
+                else enc
+            )
+            if not nested_miner.verify_nested_seed(chain, block):
                 raise ValueError(f"invalid seed chain for microblock {idx}")
-            depth, seed_len = nested_miner.decode_header(enc[0])
-            offset = 1
-            seed = enc[offset : offset + seed_len]
-            offset += seed_len
-            current = seed
-            for _ in range(1, depth):
-                next_seed = enc[offset : offset + len(block)]
-                offset += len(block)
+            current = chain[0]
+            for step in chain[1:]:
                 current = nested_miner.G(current, len(block))
-                current = next_seed
+                current = step
             final_block = nested_miner.G(current, len(block))
             recombined.append(final_block)
         statement = reassemble_microblocks(recombined)
@@ -230,17 +229,26 @@ def mark_mined(
         if events_dir is not None:
             save_event(event, events_dir)
 
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
+def accept_mined_seed(
+    event: Dict[str, Any], index: int, seed_chain: List[bytes] | bytes, *, miner: Optional[str] = None
+) -> float:
     """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
 
-    Only the first seed in ``seed_chain`` is validated against the microblock
-    size.  Nested seeds are merely checked for correctness via
+    ``seed_chain`` may be a list of seeds or the encoded byte form produced by
+    :func:`nested_miner.find_nested_seed`. Only the first seed is validated
+    against the microblock size. Nested seeds are verified via
     :func:`nested_miner.verify_nested_seed`.
     """
-    seed = seed_chain[0]
-    depth = len(seed_chain)
+
     block = event["microblocks"][index]
-    assert nested_miner.verify_nested_seed(seed_chain, block), "invalid seed chain"
+    chain_list = (
+        nested_miner._decode_chain(seed_chain, len(block))
+        if isinstance(seed_chain, (bytes, bytearray))
+        else seed_chain
+    )
+    seed = chain_list[0]
+    depth = len(chain_list)
+    assert nested_miner.verify_nested_seed(chain_list, block), "invalid seed chain"
 
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
