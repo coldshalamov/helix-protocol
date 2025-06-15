@@ -1,12 +1,18 @@
+```python
+import base64
 import hashlib
 import json
+import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from nacl import signing
 
 from .config import GENESIS_HASH
 from .minihelix import sha256
-from .signature_utils import verify_signature
+from .signature_utils import verify_signature, sign_data
 from .merkle import build_merkle_tree
+from . import nested_miner
 
 DEFAULT_MICROBLOCK_SIZE = 8
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -22,22 +28,99 @@ def calculate_reward(seed: bytes, depth: int, microblock_size: int) -> float:
         raise ValueError("Seed too large")
     return reward_for_depth(depth)
 
+def pad_block(data: bytes, size: int) -> bytes:
+    if len(data) < size:
+        return data + FINAL_BLOCK_PADDING_BYTE * (size - len(data))
+    return data
+
+def split_into_microblocks(
+    statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
+) -> Tuple[List[bytes], int, int]:
+    encoded = statement.encode("utf-8")
+    total_len = len(encoded)
+    block_count = math.ceil(total_len / microblock_size)
+    blocks = [
+        pad_block(encoded[i : i + microblock_size], microblock_size)
+        for i in range(0, total_len, microblock_size)
+    ]
+    return blocks, block_count, total_len
+
+def reassemble_microblocks(blocks: List[bytes]) -> str:
+    payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
+    return payload.decode("utf-8", errors="replace")
+
+def create_event(
+    statement: str,
+    microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
+    *,
+    parent_id: str = GENESIS_HASH,
+    private_key: Optional[str] = None,
+    registry: Optional["StatementRegistry"] = None,
+) -> Dict[str, Any]:
+    microblocks, block_count, total_len = split_into_microblocks(
+        statement, microblock_size
+    )
+    merkle_root, merkle_tree = build_merkle_tree(microblocks)
+    statement_id = sha256(statement.encode("utf-8"))
+    if registry is not None:
+        if registry.has_id(statement_id):
+            print(f"Duplicate statement_id {statement_id} already finalized; skipping")
+            raise ValueError("Duplicate statement")
+        registry.check_and_add(statement)
+
+    header = {
+        "statement_id": statement_id,
+        "original_length": total_len,
+        "microblock_size": microblock_size,
+        "block_count": block_count,
+        "parent_id": parent_id,
+        "merkle_root": merkle_root,
+    }
+
+    originator_pub: Optional[str] = None
+    originator_sig: Optional[str] = None
+    if private_key is not None:
+        key_bytes = base64.b64decode(private_key)
+        signing_key = signing.SigningKey(key_bytes)
+        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
+        originator_sig = sign_data(statement.encode("utf-8"), private_key)
+
+    event = {
+        "header": header,
+        "statement": statement,
+        "microblocks": microblocks,
+        "merkle_tree": merkle_tree,
+        "mined_status": [False] * block_count,
+        "seeds": [None] * block_count,
+        "seed_depths": [0] * block_count,
+        "penalties": [0] * block_count,
+        "rewards": [0.0] * block_count,
+        "refunds": [0.0] * block_count,
+        "is_closed": False,
+        "bets": {"YES": [], "NO": []},
+    }
+    if originator_pub is not None:
+        event["originator_pub"] = originator_pub
+        event["originator_sig"] = originator_sig
+    return event
+
 def mark_mined(event: Dict[str, Any], index: int) -> None:
     event["mined_status"][index] = True
     if all(event["mined_status"]):
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
-        finalize_event(event)
 
-def finalize_event(event: Dict[str, Any]) -> None:
-    print(f"Finalizing event {event['header']['statement_id']}")
-
-def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes] | bytes, *, miner: Optional[str] = None) -> float:
-    from . import nested_miner  # Avoid circular imports
+def accept_mined_seed(
+    event: Dict[str, Any],
+    index: int,
+    seed_chain: List[bytes] | bytes,
+    *,
+    miner: Optional[str] = None,
+) -> float:
     block = event["microblocks"][index]
     if isinstance(seed_chain, (bytes, bytearray)):
         depth, seed_len = nested_miner.decode_header(seed_chain[0])
-        seed = seed_chain[1:1 + seed_len]
+        seed = seed_chain[1 : 1 + seed_len]
     else:
         seed = seed_chain[0]
         depth = len(seed_chain)
@@ -47,10 +130,6 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
     penalty = nesting_penalty(depth)
     reward = reward_for_depth(depth)
     refund = 0.0
-
-    microblock_size = event.get("header", {}).get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
-    if len(seed) > microblock_size:
-        raise ValueError("seed length exceeds microblock size")
 
     if event["seeds"][index] is None:
         event["seeds"][index] = seed_chain
@@ -66,7 +145,11 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     old_chain = event["seeds"][index]
     old_depth = event["seed_depths"][index]
-    old_seed = old_chain[0] if isinstance(old_chain, list) else old_chain
+    if isinstance(old_chain, (bytes, bytearray)):
+        _, old_seed_len = nested_miner.decode_header(old_chain[0])
+        old_seed = old_chain[1 : 1 + old_seed_len]
+    else:
+        old_seed = old_chain[0]
 
     replace = False
     if len(seed) < len(old_seed):
@@ -100,8 +183,6 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     data["microblocks"] = [b.hex() for b in event["microblocks"]]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
-    if "merkle_tree" in data:
-        data["merkle_tree"] = data["merkle_tree"]
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
@@ -153,3 +234,4 @@ def load_event(path: str) -> Dict[str, Any]:
     data.setdefault("refunds", [0.0] * block_count)
     validate_parent(data)
     return data
+```

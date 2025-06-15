@@ -7,9 +7,18 @@ from typing import List
 from . import event_manager
 
 
+def _event_to_dict(event: dict) -> dict:
+    data = event.copy()
+    data["microblocks"] = [b.hex() for b in event.get("microblocks", [])]
+    if "seeds" in data:
+        data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    return data
+
+
 def _create_bundle(events: List[dict]) -> bytes:
     """Return gzipped JSON bytes for a list of finalized events."""
-    events_json = json.dumps(events).encode("utf-8")
+    serialized = [_event_to_dict(e) for e in events]
+    events_json = json.dumps(serialized).encode("utf-8")
     compressed = gzip.compress(events_json)
     size_saved = len(events_json) - len(compressed)
     ratio = len(events_json) / len(compressed) if len(compressed) else 0
@@ -20,7 +29,7 @@ def _create_bundle(events: List[dict]) -> bytes:
             "size_saved": size_saved,
             "compression_ratio": ratio,
         },
-        "events": events,
+        "events": serialized,
     }
     bundle_json = json.dumps(bundle).encode("utf-8")
     return gzip.compress(bundle_json)
