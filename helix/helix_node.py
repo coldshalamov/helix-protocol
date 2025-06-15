@@ -1,4 +1,3 @@
-```python
 """Minimal Helix node implementation built on :mod:`helix.gossip`."""
 
 import hashlib
@@ -35,6 +34,7 @@ class GossipMessageType:
     NEW_STATEMENT = NEW_EVENT
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
+    FINALIZED_BLOCK = "FINALIZED_BLOCK"
 
 
 def simulate_mining(index: int) -> None:
@@ -100,8 +100,6 @@ class HelixNode(GossipNode):
         self.merkle_trees: Dict[str, list[list[bytes]]] = {}
         self.balances: Dict[str, float] = load_balances(self.balances_file)
         self.registry = statement_registry.StatementRegistry()
-
-        self.load_state()
         self.registry.rebuild_from_events(str(self.events_dir))
 
         self.chain: list[dict] = blockchain.load_chain(self.chain_file)
@@ -121,7 +119,6 @@ class HelixNode(GossipNode):
                     continue
             apply_mining_results(event, self.balances)
 
-        # Resolved logic: set chain tip and print restored state
         self.chain_tip = self.chain[-1]["block_id"] if self.chain else GENESIS_HASH
         total = get_total_supply(str(self.events_dir))
         if blockchain.validate_chain(self.chain):
@@ -260,8 +257,14 @@ class HelixNode(GossipNode):
             self.submit_seed(evt_id, idx, seed_chain, proof)
 
         if all(event["mined_status"]) and not event.get("finalized"):
+            before = len(self.chain)
             event_manager.finalize_event(event, node_id=self.node_id, chain_file=self.chain_file)
-            self.finalize_event(event, append_chain=False)
+            self.chain = blockchain.load_chain(self.chain_file)
+            if len(self.chain) > before:
+                block = dict(self.chain[-1])
+                block["height"] = len(self.chain) - 1
+                self.broadcast_block(block)
+            self.finalize_event(event)
 
         event_manager.save_event(event, str(self.events_dir))
 
@@ -356,7 +359,11 @@ class HelixNode(GossipNode):
             evt_id = message.get("event_id")
             if evt_id in self.events:
                 self.events[evt_id]["is_closed"] = True
-                self.finalize_event(self.events[evt_id], append_chain=True)
+                self.finalize_event(self.events[evt_id])
+        elif msg_type == GossipMessageType.FINALIZED_BLOCK:
+            block = message.get("block")
+            if block:
+                self.apply_block(block)
 
     def _message_loop(self) -> None:
         while True:
@@ -386,22 +393,3 @@ __all__ = [
     "verify_statement_id",
     "recover_from_chain",
 ]
-
-if __name__ == "__main__":  # pragma: no cover - CLI runtime
-    import argparse
-
-    parser = argparse.ArgumentParser(prog="helix-node")
-    parser.add_argument("--events-dir", default="data/events", help="Event storage directory")
-    parser.add_argument("--balances-file", default="data/balances.json", help="Wallet balances file")
-    parser.add_argument("--chain-file", help="Blockchain JSONL file")
-    parser.add_argument("--recover", action="store_true", help="Rebuild state from chain before starting")
-    args = parser.parse_args()
-
-    node = HelixNode(
-        events_dir=args.events_dir,
-        balances_file=args.balances_file,
-        chain_file=args.chain_file,
-    )
-    if args.recover:
-        node.recover_from_chain()
-    node.run()
