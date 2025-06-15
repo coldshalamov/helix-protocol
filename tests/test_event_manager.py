@@ -32,12 +32,15 @@ def test_event_closure():
 def test_accept_block_size_seed():
     event = em.create_event("ab", microblock_size=2)
     seed = b"xy"
-    refund = em.accept_mined_seed(event, 0, [seed])
+    encoded = em.nested_miner.encode_header(1, len(seed)) + seed
+    refund = em.accept_mined_seed(event, 0, encoded)
     assert refund == 0
-    assert event["seeds"][0] == seed
+    hdr = event["seeds"][0][0]
+    _, l = em.nested_miner.decode_header(hdr)
+    assert event["seeds"][0][1 : 1 + l] == seed
 
 
 def test_reject_oversize_seed():
     event = em.create_event("ab", microblock_size=2)
     with pytest.raises(ValueError):
-        em.accept_mined_seed(event, 0, [b"toolong"])
+        em.accept_mined_seed(event, 0, em.nested_miner.encode_header(1, 7) + b"toolong")

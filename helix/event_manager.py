@@ -19,16 +19,13 @@ DEFAULT_MICROBLOCK_SIZE = 8  # bytes
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
 BASE_REWARD = 1.0
 
-
 def nesting_penalty(depth: int) -> int:
     if depth < 1:
         raise ValueError("depth must be >= 1")
     return depth - 1
 
-
 def reward_for_depth(depth: int) -> float:
     return BASE_REWARD / depth
-
 
 def calculate_reward(base: float, depth: int) -> float:
     """Return the scaled reward for ``depth``."""
@@ -37,16 +34,13 @@ def calculate_reward(base: float, depth: int) -> float:
     reward = base / depth
     return round(reward, 4)
 
-
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
 
 def pad_block(data: bytes, size: int) -> bytes:
     if len(data) < size:
         return data + FINAL_BLOCK_PADDING_BYTE * (size - len(data))
     return data
-
 
 def split_into_microblocks(
     statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
@@ -60,11 +54,9 @@ def split_into_microblocks(
     ]
     return blocks, block_count, total_len
 
-
 def reassemble_microblocks(blocks: List[bytes]) -> str:
     payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
     return payload.decode("utf-8")
-
 
 def create_event(
     statement: str,
@@ -120,7 +112,6 @@ def create_event(
         event["originator_sig"] = originator_sig
     return event
 
-
 def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
     """Resolve bets and miner rewards for ``event``.
 
@@ -171,7 +162,6 @@ def finalize_event(event: Dict[str, Any]) -> Dict[str, float]:
     event["payouts"] = payouts
     return payouts
 
-
 def mark_mined(
     event: Dict[str, Any], index: int, *, events_dir: Optional[str] = None
 ) -> None:
@@ -185,7 +175,6 @@ def mark_mined(
         if events_dir is not None:
             save_event(event, events_dir)
 
-
 def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes], *, miner: Optional[str] = None) -> float:
     """Record ``seed_chain`` as the mining solution for ``microblock[index]``.
 
@@ -193,7 +182,6 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
     size.  Nested seeds are merely checked for correctness via
     :func:`nested_miner.verify_nested_seed`.
     """
-
     seed = seed_chain[0]
     depth = len(seed_chain)
     block = event["microblocks"][index]
@@ -208,7 +196,7 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         raise ValueError("seed length exceeds microblock size")
 
     if event["seeds"][index] is None:
-        event["seeds"][index] = seed
+        event["seeds"][index] = seed_chain
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
@@ -219,8 +207,9 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
         mark_mined(event, index)
         return 0.0
 
-    old_seed = event["seeds"][index]
+    old_chain = event["seeds"][index]
     old_depth = event["seed_depths"][index]
+    old_seed = old_chain[0] if isinstance(old_chain, list) else old_chain
 
     replace = False
     if len(seed) < len(old_seed):
@@ -230,7 +219,7 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     if replace:
         refund = event["rewards"][index] - reward
-        event["seeds"][index] = seed
+        event["seeds"][index] = seed_chain
         event["seed_depths"][index] = depth
         event["penalties"][index] = penalty
         event["rewards"][index] = reward
@@ -246,7 +235,6 @@ def accept_mined_seed(event: Dict[str, Any], index: int, seed_chain: List[bytes]
 
     return refund
 
-
 def save_event(event: Dict[str, Any], directory: str) -> str:
     path = Path(directory)
     path.mkdir(parents=True, exist_ok=True)
@@ -258,7 +246,6 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return str(filename)
-
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
     """Verify the originator signature attached to ``event``."""
@@ -277,7 +264,6 @@ def verify_originator_signature(event: Dict[str, Any]) -> bool:
 
     return True
 
-
 def verify_event_signature(event: Dict[str, Any]) -> bool:
     """Verify the signature for ``event`` recorded at the root level."""
     signature = event.get("originator_sig")
@@ -292,14 +278,12 @@ def verify_event_signature(event: Dict[str, Any]) -> bool:
 
     return True
 
-
 def validate_parent(event: Dict[str, Any], *, ancestors: Optional[set[str]] = None) -> None:
     if ancestors is None:
         ancestors = {GENESIS_HASH}
     parent_id = event.get("header", {}).get("parent_id")
     if parent_id not in ancestors:
         raise ValueError("invalid parent_id")
-
 
 def load_event(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
@@ -314,7 +298,6 @@ def load_event(path: str) -> Dict[str, Any]:
     data.setdefault("refunds", [0.0] * block_count)
     validate_parent(data)
     return data
-
 
 __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",

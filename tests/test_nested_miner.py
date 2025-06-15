@@ -6,10 +6,9 @@ from helix import minihelix
 def test_verify_nested_seed():
     N = 8
     base_seed = b"seed"
-    chain = [base_seed]
-    intermediate = minihelix.G(base_seed, N)
-    chain.append(intermediate)
-    target = minihelix.G(intermediate, N)
+    inter = minihelix.G(base_seed, N)
+    chain = nested_miner.encode_header(2, len(base_seed)) + base_seed + inter
+    target = minihelix.G(inter, N)
     assert nested_miner.verify_nested_seed(chain, target)
 
 
@@ -31,6 +30,7 @@ def test_find_nested_seed_deterministic(monkeypatch):
 
     result = nested_miner.find_nested_seed(target, max_depth=2, attempts=1)
     assert result is not None
-    chain, depth = result
+    encoded, depth = result
     assert depth == 2
-    assert chain == [base_seed, intermediate]
+    expected = nested_miner.encode_header(2, len(base_seed)) + base_seed + intermediate
+    assert encoded == expected
