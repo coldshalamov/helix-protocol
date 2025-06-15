@@ -1,5 +1,5 @@
-```python
 import json
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -69,22 +69,43 @@ def load_chain(path: str) -> List[Dict[str, Any]]:
 
 
 def validate_chain(chain: List[Dict[str, Any]]) -> bool:
-    """Basic validation of a blockchain structure.
+    """Validate a chain loaded with :func:`load_chain`.
 
-    Each block must be a dictionary containing at least an ``event_id`` field.
-    If a ``height`` field is present, it must match the block's index.
+    The chain is walked block by block verifying that ``parent_id`` matches the
+    previous block's ``block_id`` and that each block's ``block_id`` equals the
+    SHA-256 hash of the block contents (excluding the ``block_id`` field).
     """
+
     if not isinstance(chain, list):
         return False
-    for idx, block in enumerate(chain):
+
+    prev_id: Optional[str] = None
+    for block in chain:
         if not isinstance(block, dict):
             return False
-        if "event_id" not in block:
+
+        parent_id = block.get("parent_id")
+
+        block_copy = dict(block)
+        block_id = block_copy.pop("block_id", None)
+        if block_id is None:
             return False
-        if "height" in block and block["height"] != idx:
+
+        digest = hashlib.sha256(
+            json.dumps(block_copy, separators=(",", ":"), sort_keys=True).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+
+        if digest != block_id:
             return False
+
+        if prev_id is not None and parent_id != prev_id:
+            return False
+
+        prev_id = block_id
+
     return True
 
 
 __all__ = ["get_chain_tip", "load_chain", "validate_chain"]
-```

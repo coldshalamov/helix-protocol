@@ -31,6 +31,62 @@ def calculate_reward(seed: bytes, depth: int, microblock_size: int) -> float:
         raise ValueError("Seed too large")
     return reward_for_depth(depth)
 
+
+def compute_reward(obj: Any, microblock_size: int | None = None) -> float:
+    """Compute HLX reward.
+
+    ``obj`` may be a mined seed or a finalized event. When ``obj`` is a
+    ``bytes`` instance, ``microblock_size`` must be provided and the reward
+    represents the number of bytes saved. When ``obj`` is an event
+    dictionary, the total reward for the event is returned after deducting
+    any gas fee present in the header. The computed reward is also stored on
+    the event under ``"miner_reward"``.
+    """
+
+    if isinstance(obj, (bytes, bytearray)):
+        if microblock_size is None:
+            raise TypeError("microblock_size required for seed reward")
+        if len(obj) > microblock_size:
+            return 0.0
+        return float(max(0, microblock_size - len(obj)))
+
+    if not isinstance(obj, dict):
+        raise TypeError("unsupported reward target")
+
+    event: Dict[str, Any] = obj
+    hdr = event.get("header", {})
+    micro_size = hdr.get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    seeds = event.get("seeds", [])
+
+    saved = 0
+    total_seed_len = 0
+    for seed in seeds:
+        if seed is None:
+            continue
+        if isinstance(seed, (bytes, bytearray)):
+            if len(seed) < 2:
+                continue
+            seed_len = seed[1]
+        else:
+            seed_len = len(seed[0]) if seed else 0
+        saved += max(0, micro_size - seed_len)
+        total_seed_len += seed_len
+
+    block_count = hdr.get("block_count", len(seeds))
+    ratio = (
+        (block_count * micro_size / total_seed_len)
+        if total_seed_len
+        else 0.0
+    )
+
+    reward = float(saved)
+
+    gas_fee = float(hdr.get("gas_fee", 0))
+    reward = max(reward - gas_fee, 0.0)
+    event["miner_reward"] = reward
+    event["compression_ratio"] = ratio
+    return reward
+
 def pad_block(data: bytes, size: int) -> bytes:
     if len(data) < size:
         return data + FINAL_BLOCK_PADDING_BYTE * (size - len(data))
@@ -162,6 +218,11 @@ def finalize_event(
             if pub:
                 payout = pot * (amt / winner_total)
                 payouts[pub] = payouts.get(pub, 0.0) + payout
+
+    # Reward the miner based on compression statistics
+    miner_reward = compute_reward(event)
+    if node_id:
+        payouts[node_id] = payouts.get(node_id, 0.0) + miner_reward
 
     event["payouts"] = payouts
 
