@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .minihelix import G, mine_seed
 
-
 def find_nested_seed(
     target_block: bytes,
     *,
@@ -14,8 +13,7 @@ def find_nested_seed(
 ) -> bytes | None:
     """Search for a seed chain that regenerates ``target_block``.
 
-    Returns an encoded chain: the seed followed by any intermediate steps,
-    ending when the target block is matched. No header or depth encoding is used.
+    Returns a flat byte sequence of the seed chain (excluding final G).
     """
 
     def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
@@ -49,10 +47,7 @@ def verify_nested_seed(
     *,
     max_steps: int = 1000,
 ) -> bool:
-    """Return True if applying G repeatedly to ``seed_chain[0]`` yields ``target_block``.
-
-    Accepts either a list of steps or a flat concatenated byte sequence.
-    """
+    """Return True if applying G repeatedly to seed_chain regenerates target_block."""
 
     N = len(target_block)
 
@@ -85,10 +80,7 @@ def hybrid_mine(
     attempts: int = 10_000,
     max_steps: int = 1000,
 ) -> bytes | None:
-    """Try nested mining first; fallback to flat mining if needed.
-
-    Returns a seed (not a chain) if mining is successful.
-    """
+    """Try nested mining first; fallback to flat mining if needed."""
     result = find_nested_seed(
         target_block,
         start_nonce=start_nonce,
@@ -98,8 +90,7 @@ def hybrid_mine(
     if result is not None:
         return result
 
-    seed = mine_seed(target_block, max_attempts=attempts)
-    return seed
+    return mine_seed(target_block, max_attempts=attempts)
 
 
 __all__ = [

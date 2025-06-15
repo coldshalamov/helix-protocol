@@ -15,10 +15,9 @@ def test_cli_mine_nested(tmp_path, monkeypatch):
     event_manager.save_event(event, str(tmp_path / "events"))
     evt_id = event["header"]["statement_id"]
 
-    header = event_manager.nested_miner.encode_header(2, 1)
     seed = b"a"
     subseed = minihelix.G(seed, 2)
-    chain = header + seed + subseed
+    chain = bytes([2, len(seed)]) + seed + subseed
 
     monkeypatch.setattr(
         "helix.cli.nested_miner.find_nested_seed",
@@ -32,5 +31,5 @@ def test_cli_mine_nested(tmp_path, monkeypatch):
     assert reloaded["is_closed"]
     assert reloaded["seed_depths"][0] == 2
     hdr = reloaded["seeds"][0][0]
-    _, l = event_manager.nested_miner.decode_header(hdr)
-    assert reloaded["seeds"][0][1 : 1 + l] == b"a"
+    l = reloaded["seeds"][0][1]
+    assert reloaded["seeds"][0][2 : 2 + l] == b"a"

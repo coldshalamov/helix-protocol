@@ -1,4 +1,3 @@
-
 from helix import nested_miner
 from helix import minihelix
 
@@ -7,8 +6,7 @@ def test_verify_nested_seed():
     N = 8
     base_seed = b"seed"
     inter = minihelix.G(base_seed, N)
-    encoded = nested_miner.encode_header(2, len(base_seed)) + base_seed + inter
-    chain = nested_miner._decode_chain(encoded, N)
+    chain = [base_seed, inter]
     target = minihelix.G(inter, N)
     assert nested_miner.verify_nested_seed(chain, target)
 
@@ -30,13 +28,12 @@ def test_find_nested_seed_deterministic():
             break
 
     result = nested_miner.find_nested_seed(
-        target, max_depth=2, start_nonce=start_nonce, attempts=1
+        target, start_nonce=start_nonce, attempts=1, max_steps=2
     )
     assert result is not None
-    encoded, depth = result
-    assert depth == 2
-    expected = nested_miner.encode_header(2, len(base_seed)) + base_seed + intermediate
-    assert encoded == expected
+    # Reconstruct expected chain
+    expected = base_seed + intermediate
+    assert result == expected
 
 
 def test_verify_nested_seed_max_steps_limit():

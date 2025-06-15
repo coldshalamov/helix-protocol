@@ -6,14 +6,10 @@ from pathlib import Path
 from .helix_node import HelixNode
 from .gossip import LocalGossipNetwork
 from .network import TCPGossipTransport, SocketGossipNetwork, Peer
-from . import signature_utils
-from .config import GENESIS_HASH
-import threading
-import time
-from . import event_manager
 from . import signature_utils as su
+from .config import GENESIS_HASH
+from . import event_manager
 from . import nested_miner
-from . import minihelix
 from . import betting_interface
 from .ledger import load_balances, compression_stats
 
@@ -109,7 +105,7 @@ def cmd_mine(args: argparse.Namespace) -> None:
             if not nested_miner.verify_nested_seed(result, block):
                 continue
             event_manager.accept_mined_seed(event, idx, result)
-            print(f"\u2714 Block {idx} mined")
+            print(f"✔ Block {idx} mined")
             break
     event_manager.save_event(event, str(events_dir))
 
