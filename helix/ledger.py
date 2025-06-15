@@ -1,3 +1,4 @@
+```python
 import json
 from pathlib import Path
 from typing import Dict, Tuple, Any
@@ -21,6 +22,26 @@ def save_balances(balances: Dict[str, float], path: str) -> None:
         json.dump(balances, f, indent=2)
 
 
+def get_total_supply(path: str = "supply.json") -> float:
+    """Return total HLX supply stored in ``path``.
+
+    If the file does not exist, return ``0.0``.
+    """
+    file = Path(path)
+    if not file.exists():
+        return 0.0
+    with open(file, "r", encoding="utf-8") as f:
+        return float(json.load(f))
+
+
+def update_total_supply(delta: float, path: str = "supply.json") -> None:
+    """Increase total supply by ``delta`` and persist the new value."""
+    total = get_total_supply(path) + float(delta)
+    file = Path(path)
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(total, f)
+
+
 def compression_stats(events_dir: str) -> Tuple[int, float]:
     """Return total bytes saved and HLX earned across finalized events.
 
@@ -29,7 +50,6 @@ def compression_stats(events_dir: str) -> Tuple[int, float]:
     events_dir:
         Directory containing event JSON files.
     """
-
     path = Path(events_dir)
     if not path.exists():
         return 0, 0.0
@@ -70,6 +90,10 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
     refunds = event.get("refunds", [])
     refund_miners = event.get("refund_miners", [None] * len(miners))
 
+    net_reward = sum(rewards) - sum(refunds)
+    if net_reward:
+        update_total_supply(net_reward)
+
     for idx, miner in enumerate(miners):
         if miner:
             reward = rewards[idx] if idx < len(rewards) else 0.0
@@ -100,7 +124,10 @@ def get_total_supply(events_dir: str) -> float:
 __all__ = [
     "load_balances",
     "save_balances",
+    "get_total_supply",
+    "update_total_supply",
     "compression_stats",
     "apply_mining_results",
     "get_total_supply",
 ]
+```

@@ -1,4 +1,3 @@
-```python
 import argparse
 import json
 import hashlib
@@ -400,4 +399,3 @@ if __name__ == "__main__":
     main()
 
 __all__ = ["main"]
-```
