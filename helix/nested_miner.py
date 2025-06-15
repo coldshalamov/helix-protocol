@@ -79,4 +79,78 @@ def hybrid_mine(target_block: bytes, max_depth: int = 4) -> tuple[bytes, int] | 
     return None
 
 
-__all__ = ["find_nested_seed", "verify_nested_seed", "hybrid_mine"]
+def mine_event_with_nested_parallel(
+    event: dict,
+    max_depth: int = 10,
+    max_attempts: int | None = None,
+    miner_id: str | None = None,
+) -> None:
+    """Batch mine all unmined microblocks of ``event`` using nested seeds.
+
+    For each randomly generated seed, this function checks the seed and up to
+    ``max_depth`` successive applications of :func:`G` against every unmined
+    microblock.  The first depth that matches a block is accepted immediately
+    via :func:`event_manager.accept_mined_seed`.  Mining stops when either all
+    microblocks have been mined or ``max_attempts`` seeds have been tried.
+    """
+
+    from . import event_manager
+
+    microblocks = event["microblocks"]
+    status = event["mined_status"]
+
+    targets: list[tuple[int, bytes]] = [
+        (i, microblocks[i]) for i in range(len(microblocks)) if not status[i]
+    ]
+    if not targets:
+        print("All microblocks already mined.")
+        return
+
+    N = len(targets[0][1])
+    attempts = 0
+    mined_count = 0
+    print(f"Starting mining on {len(targets)} microblocks...")
+
+    try:
+        while targets:
+            length = random.randint(1, N)
+            seed = os.urandom(length)
+            chain = [seed]
+            current = seed
+
+            for depth in range(1, max_depth + 1):
+                current = G(current, N)
+                for idx, target in list(targets):
+                    if current == target:
+                        event_manager.accept_mined_seed(
+                            event, idx, chain[:depth], miner=miner_id
+                        )
+                        print(
+                            f"\u2714 Mined block {idx} at depth {depth} (seed len {len(seed)})"
+                        )
+                        mined_count += 1
+                chain.append(current)
+
+                targets = [
+                    (i, blk) for i, blk in targets if not event["mined_status"][i]
+                ]
+                if not targets:
+                    break
+
+            attempts += 1
+            if max_attempts is not None and attempts >= max_attempts:
+                break
+    except KeyboardInterrupt:
+        print("Mining interrupted by user.")
+
+    print(
+        f"Mining complete. Mined {mined_count} microblocks after {attempts} attempts."
+    )
+
+
+__all__ = [
+    "find_nested_seed",
+    "verify_nested_seed",
+    "hybrid_mine",
+    "mine_event_with_nested_parallel",
+]
