@@ -1,3 +1,4 @@
+```python
 """Minimal Helix node implementation built on :mod:`helix.gossip`."""
 
 import hashlib
@@ -21,9 +22,12 @@ from .ledger import (
     save_balances,
     apply_mining_results,
     update_total_supply,
+    get_total_supply,
 )
+from . import statement_registry
 from .gossip import GossipNode, LocalGossipNetwork
 from .network import SocketGossipNetwork
+import blockchain
 
 
 class GossipMessageType:
@@ -95,11 +99,10 @@ class HelixNode(GossipNode):
         self.events: Dict[str, Dict[str, Any]] = {}
         self.merkle_trees: Dict[str, list[list[bytes]]] = {}
         self.balances: Dict[str, float] = load_balances(self.balances_file)
+        self.registry = statement_registry.StatementRegistry()
 
         self.load_state()
-
-        # Load blockchain and replay balances
-        from . import blockchain
+        self.registry.rebuild_from_events(str(self.events_dir))
 
         self.chain: list[dict] = blockchain.load_chain(self.chain_file)
         for block in self.chain:
@@ -118,8 +121,11 @@ class HelixNode(GossipNode):
                     continue
             apply_mining_results(event, self.balances)
 
+        # Resolved logic: set chain tip and print restored state
+        self.chain_tip = self.chain[-1]["block_id"] if self.chain else GENESIS_HASH
+        total = get_total_supply(str(self.events_dir))
         if blockchain.validate_chain(self.chain):
-            print("Blockchain loaded successfully")
+            print(f"Restored tip {self.chain_tip} | Total HLX {total:.4f}")
         else:
             print("Blockchain validation mismatch")
 
@@ -142,9 +148,6 @@ class HelixNode(GossipNode):
         save_balances(self.balances, self.balances_file)
 
     def recover_from_chain(self) -> None:
-        """Rebuild balances and event state from the stored blockchain."""
-        from . import blockchain
-
         self.balances = {}
         self.chain = blockchain.load_chain(self.chain_file)
         for block in self.chain:
@@ -237,7 +240,10 @@ class HelixNode(GossipNode):
             else:
                 result = nested_miner.find_nested_seed(block, max_depth=self.max_nested_depth)
                 if result:
-                    encoded, _ = result
+                    if isinstance(result, tuple):
+                        encoded, _ = result
+                    else:
+                        encoded = bytes(result)
                     chain = nested_miner._decode_chain(encoded, len(block))
                     if nested_miner.verify_nested_seed(chain, block):
                         seed_chain = chain
@@ -274,7 +280,6 @@ class HelixNode(GossipNode):
         save_balances(self.balances, self.balances_file)
         event_manager.save_event(event, str(self.events_dir))
         if append_chain:
-            from . import blockchain
             block = {
                 "parent_id": blockchain.get_chain_tip(self.chain_file),
                 "event_id": event["header"]["statement_id"],
