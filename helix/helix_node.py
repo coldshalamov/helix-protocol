@@ -230,13 +230,14 @@ class HelixNode(GossipNode):
             proof = merkle.build_merkle_proof(event["microblocks"], idx)
             self.submit_seed(evt_id, idx, seed_chain, proof)
 
-        if event.get("is_closed"):
+        if all(event["mined_status"]) and not event.get("finalized"):
+            event_manager.finalize_event(event, node_id=self.node_id)
             self.finalize_event(event)
 
         event_manager.save_event(event, str(self.events_dir))
 
     def finalize_event(self, event: Dict[str, Any]) -> None:
-        if not event.get("is_closed"):
+        if not event.get("is_closed") or event.get("finalized"):
             return
         for bet in event.get("bets", {}).get("YES", []):
             pub = bet.get("pubkey")
@@ -249,6 +250,7 @@ class HelixNode(GossipNode):
         update_total_supply(sum(rewards) + sum(refunds))
         save_balances(self.balances, self.balances_file)
         event_manager.save_event(event, str(self.events_dir))
+        event["finalized"] = True
         self._send({"type": GossipMessageType.FINALIZED, "event_id": event["header"]["statement_id"]})
 
     def _handle_message(self, message: Dict[str, Any]) -> None:
