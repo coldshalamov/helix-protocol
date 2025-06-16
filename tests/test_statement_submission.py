@@ -26,4 +26,5 @@ def test_create_event_without_signature():
     event = em.create_event("No sig", microblock_size=4)
     assert "merkle_root" in event["header"]
     assert isinstance(event.get("merkle_tree"), list)
-    assert not verify_event_signature(event)
+    assert verify_event_signature(event)
+    assert "originator_pub" in event and "originator_sig" in event
