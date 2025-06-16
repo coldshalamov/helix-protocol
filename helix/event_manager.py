@@ -12,6 +12,7 @@ from .config import GENESIS_HASH
 from .signature_utils import verify_signature, sign_data
 from .merkle_utils import build_merkle_tree
 from . import nested_miner, betting_interface
+from .minihelix import G
 
 DEFAULT_MICROBLOCK_SIZE = 8
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -107,6 +108,34 @@ def split_into_microblocks(
 def reassemble_microblocks(blocks: List[bytes]) -> str:
     payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
     return payload.decode("utf-8", errors="replace")
+
+
+def verify_seed_chain(seed_chain: List[bytes] | bytes, block: bytes) -> bool:
+    """Return ``True`` if ``seed_chain`` regenerates ``block``.
+
+    The chain may be provided either as a list of seed bytes or in the
+    encoded byte form returned by :func:`nested_miner.find_nested_seed`.
+    The seeds are unpacked using the same logic as in
+    :func:`helix.nested_miner.verify_nested_seed` before verifying the
+    block regeneration step by step.
+    """
+
+    N = len(block)
+    if isinstance(seed_chain, (bytes, bytearray)):
+        chain = nested_miner._decode_chain(seed_chain, N)
+    else:
+        chain = seed_chain
+
+    if not chain or not (0 < len(chain[0]) <= N):
+        return False
+
+    current = chain[0]
+    for step in chain[1:]:
+        current = G(current, N)
+        if current != step:
+            return False
+    current = G(current, N)
+    return current == block
 
 def create_event(
     statement: str,
