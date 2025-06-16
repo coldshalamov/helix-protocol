@@ -3,7 +3,13 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import event_manager, nested_miner, betting_interface, signature_utils
+from . import (
+    event_manager,
+    nested_miner,
+    betting_interface,
+    signature_utils,
+    merkle_utils,
+)
 from .ledger import load_balances, compression_stats, get_total_supply
 from .config import GENESIS_HASH
 from .blockchain import load_chain
@@ -155,15 +161,39 @@ def cmd_view_event(args: argparse.Namespace) -> None:
         print(f"Merkle Root: {merkle_root}")
     else:
         print("Merkle Root: None")
-    print("Bets:")
-    print(json.dumps(event.get("bets", {}), indent=2))
 
+    print("Microblock Details:")
+    tree = event.get("merkle_tree", [])
+    for idx, block in enumerate(event.get("microblocks", [])):
+        mined_flag = event.get("mined_status", [False])[idx]
+        print(f"  {idx}: {block.hex()} mined={mined_flag}")
+        seed = event.get("seeds", [None])[idx]
+        if seed is not None:
+            if isinstance(seed, (bytes, bytearray)):
+                chain = nested_miner._decode_chain(seed, len(block))
+                chain_hex = [s.hex() for s in chain]
+            else:
+                chain_hex = [s.hex() for s in seed]
+            valid_seed = event_manager.verify_seed_chain(seed, block)
+            print(f"    Seed Chain: {chain_hex}")
+            print(f"    Seed Valid: {valid_seed}")
+        else:
+            print("    Seed Chain: None")
+        if merkle_root is not None and tree:
+            proof = merkle_utils.generate_merkle_proof(idx, tree)
+            valid_proof = merkle_utils.verify_merkle_proof(block, proof, merkle_root, idx)
+            print(f"    Merkle Proof: {valid_proof}")
+        else:
+            print("    Merkle Proof: False")
+
+    bets = event.get("bets", {})
+    yes_total = sum(b.get("amount", 0) for b in bets.get("YES", []))
+    no_total = sum(b.get("amount", 0) for b in bets.get("NO", []))
+    print(f"Votes: YES={yes_total} NO={no_total}")
     if "payouts" in event:
-        yes_total = sum(b.get("amount", 0) for b in event.get("bets", {}).get("YES", []))
-        no_total = sum(b.get("amount", 0) for b in event.get("bets", {}).get("NO", []))
         resolution = "YES" if yes_total > no_total else "NO"
         print(f"Resolution: {resolution}")
-        print("Payouts:")
+        print("Rewards:")
         print(json.dumps(event.get("payouts"), indent=2))
 
 
