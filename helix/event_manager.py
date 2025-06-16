@@ -224,6 +224,23 @@ def finalize_event(
     if node_id:
         payouts[node_id] = payouts.get(node_id, 0.0) + miner_reward
 
+    # Simulated unaligned payout to early miners
+    unaligned_total = float(event.get("unaligned_funds", 0.0))
+    unaligned_payouts: Dict[str, float] = {}
+    if unaligned_total > 0:
+        miner_counts: Dict[str, int] = {}
+        for m in event.get("refund_miners", []):
+            if m:
+                miner_counts[m] = miner_counts.get(m, 0) + 1
+        total_count = sum(miner_counts.values())
+        if total_count:
+            for miner, count in miner_counts.items():
+                share = unaligned_total * (count / total_count)
+                unaligned_payouts[miner] = share
+                payouts[miner] = payouts.get(miner, 0.0) + share
+                print(f"Unaligned payout: {miner} receives {share}")
+    event["unaligned_payouts"] = unaligned_payouts
+
     event["payouts"] = payouts
 
     hdr_serializable = {
