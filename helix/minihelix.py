@@ -5,11 +5,24 @@ from __future__ import annotations
 import hashlib
 
 
+# When enabled, G() returns mock outputs for deterministic testing.
+TEST_MODE = False
+_test_counter = 0
+
+
 DEFAULT_MICROBLOCK_SIZE = 8
 
 
 def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
     """Return ``N`` bytes generated from ``seed`` using the MiniHelix function."""
+    global _test_counter
+
+    if TEST_MODE:
+        # Deterministic mock output for tests: b"\x00", b"\x01", ...
+        out = bytes([_test_counter % 256]) * N
+        _test_counter += 1
+        return out
+
     if not seed:
         raise ValueError("seed must not be empty")
     if len(seed) > 255:
