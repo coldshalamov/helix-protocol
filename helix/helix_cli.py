@@ -208,6 +208,28 @@ def cmd_view_chain(args: argparse.Namespace) -> None:
             print(f"height={height} event_id={event_id} block_id={block_id} saved={saved}")
 
 
+def cmd_finalize(args: argparse.Namespace) -> None:
+    """Finalize an event and append the block to the chain."""
+    event = _load_event(args.event_id)
+
+    for idx, block in enumerate(event.get("microblocks", [])):
+        seed = event.get("seeds", [])[idx]
+        if seed is None:
+            raise SystemExit(f"Missing seed for block {idx}")
+        if not event_manager.nested_miner.verify_nested_seed(seed, block):
+            raise SystemExit(f"Seed verification failed for block {idx}")
+
+    statement = event_manager.reassemble_microblocks(event["microblocks"])
+    digest = event_manager.sha256(statement.encode("utf-8"))
+    expected = event.get("header", {}).get("statement_id")
+    if digest != expected:
+        raise SystemExit("SHA-256 mismatch")
+
+    event_manager.finalize_event(event)
+    _save_event(event)
+    print("statement verified, block saved, rewards distributed")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -264,6 +286,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_chain.add_argument("--data-dir", default="data", help="Directory containing chain and events")
     p_chain.add_argument("--summary", action="store_true", help="Summary output")
     p_chain.set_defaults(func=cmd_view_chain)
+
+    p_fin = sub.add_parser("finalize", help="Finalize an event")
+    p_fin.add_argument("event_id", help="Event identifier")
+    p_fin.set_defaults(func=cmd_finalize)
 
     return parser
 
