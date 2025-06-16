@@ -129,29 +129,185 @@ __all__ = [
     "verify_statement_id",
     "mine_microblocks",
     "initialize_genesis_block",
+    "HelixNode",
 ]  # HelixNode and recover_from_chain will be defined in separate file to resolve conflicts cleanly
 
 
-class HelixNode:
-    def __init__(self, node_id: str, data_dir: Path, gossip_network: Optional[Any] = None):
-        self.node_id = node_id
-        self.data_dir = data_dir
-        self.gossip = gossip_network or LocalGossipNetwork()
-        self.gossip.register(self)
-        self.wallet = load_balances(data_dir)
-        self.total_supply = get_total_supply(data_dir)
-        self.registry = statement_registry.load_registry(data_dir)
-        self.mempool = queue.Queue()
-        self.running = False
+class HelixNode(GossipNode):
+    """Minimal networked node used in the tests."""
 
-    def start(self):
-        self.running = True
-        print(f"[HelixNode] Node {self.node_id} started. Listening for gossip...")
+    def __init__(
+        self,
+        *,
+        events_dir: str,
+        balances_file: str,
+        chain_file: str | None = None,
+        network: Optional[LocalGossipNetwork] = None,
+        node_id: str = "NODE",
+        microblock_size: int = event_manager.DEFAULT_MICROBLOCK_SIZE,
+        public_key: str | None = None,
+        private_key: str | None = None,
+        genesis_file: str = "genesis.json",
+        max_nested_depth: int = 4,
+    ) -> None:
+        network = network or LocalGossipNetwork()
+        super().__init__(node_id, network)
+        self.events_dir = Path(events_dir)
+        self.events_dir.mkdir(parents=True, exist_ok=True)
+        self.balances_file = Path(balances_file)
+        self.chain_file = Path(chain_file or "blockchain.jsonl")
+        self.microblock_size = microblock_size
+        self.public_key = public_key
+        self.private_key = private_key
+        self.max_nested_depth = max_nested_depth
 
-    def stop(self):
-        self.running = False
-        print(f"[HelixNode] Node {self.node_id} stopped.")
+        self.events: Dict[str, Dict[str, Any]] = {}
+        self.balances: Dict[str, float] = load_balances(str(self.balances_file))
 
-    def receive_message(self, message: Dict[str, Any]):
-        print(f"[HelixNode] Received message: {message.get('type', 'UNKNOWN')}")
+        gf = Path(genesis_file)
+        if gf.exists():
+            data = gf.read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            if digest != GENESIS_HASH:
+                raise ValueError("genesis file hash mismatch")
+            self.genesis = json.loads(data.decode("utf-8"))
+        else:
+            self.genesis = None
+
+        self.load_state()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+
+    def load_state(self) -> None:
+        self.events = {}
+        if self.events_dir.exists():
+            for path in self.events_dir.glob("*.json"):
+                try:
+                    event = event_manager.load_event(str(path))
+                except Exception:
+                    continue
+                evt_id = event["header"]["statement_id"]
+                self.events[evt_id] = event
+
+    def save_state(self) -> None:
+        for event in self.events.values():
+            event_manager.save_event(event, str(self.events_dir))
+        save_balances(self.balances, str(self.balances_file))
+
+    def import_event(self, event: Dict[str, Any]) -> None:
+        try:
+            event_manager.validate_parent(event)
+        except Exception:
+            raise
+        evt_id = event["header"]["statement_id"]
+        self.events[evt_id] = event
+
+    # ------------------------------------------------------------------
+    # Event operations
+
+    def create_event(self, statement: str, private_key: str | None = None) -> Dict[str, Any]:
+        priv = private_key or self.private_key
+        parent = bc.get_chain_tip(str(self.chain_file))
+        event = event_manager.create_event(statement, self.microblock_size, parent_id=parent, private_key=priv)
+        fee = event["header"]["block_count"]
+        event["header"]["gas_fee"] = fee
+        originator = event.get("originator_pub")
+        if originator:
+            self.balances[originator] = self.balances.get(originator, 0.0) - fee
+        return event
+
+    def mine_event(self, event: Dict[str, Any]) -> None:
+        evt_id = event["header"]["statement_id"]
+        for idx, block in enumerate(event.get("microblocks", [])):
+            if event["seeds"][idx] is not None:
+                continue
+            simulate_mining(idx)
+            seed = find_seed(block)
+            if seed is None or not verify_seed(seed, block):
+                continue
+            event_manager.accept_mined_seed(event, idx, [seed], miner=self.node_id)
+            if self.private_key and self.public_key:
+                payload = f"{evt_id}:{idx}:{seed.hex()}".encode("utf-8")
+                sig = signature_utils.sign_data(payload, self.private_key)
+                msg = {
+                    "type": GossipMessageType.MINED_MICROBLOCK,
+                    "event_id": evt_id,
+                    "index": idx,
+                    "seed": seed.hex(),
+                    "pubkey": self.public_key,
+                    "signature": sig,
+                }
+            else:
+                msg = {
+                    "type": GossipMessageType.MINED_MICROBLOCK,
+                    "event_id": evt_id,
+                    "index": idx,
+                    "seed": seed.hex(),
+                }
+            self.send_message(msg)
+        self.save_state()
+
+    def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
+        payouts = event_manager.finalize_event(event, node_id=self.node_id, chain_file=str(self.chain_file))
+        apply_mining_results(event, self.balances)
+        for acct, amount in payouts.items():
+            self.balances[acct] = self.balances.get(acct, 0.0) + amount
+        self.save_state()
+        self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
+        return payouts
+
+    # ------------------------------------------------------------------
+    # Gossip handling
+
+    def _handle_message(self, message: Dict[str, Any]) -> None:
+        mtype = message.get("type")
+        if mtype == GossipMessageType.NEW_STATEMENT:
+            event = message.get("event")
+            if event and verify_statement_id(event):
+                evt_id = event["header"]["statement_id"]
+                self.events[evt_id] = event
+                self.save_state()
+                self.forward_message(message)
+        elif mtype == GossipMessageType.MINED_MICROBLOCK:
+            evt_id = message.get("event_id")
+            idx = message.get("index")
+            seed_hex = message.get("seed")
+            pub = message.get("pubkey")
+            sig = message.get("signature")
+            if evt_id in self.events and idx is not None and seed_hex:
+                if pub and sig:
+                    payload = f"{evt_id}:{idx}:{seed_hex}".encode("utf-8")
+                    if not signature_utils.verify_signature(payload, sig, pub):
+                        return
+                try:
+                    seed = bytes.fromhex(seed_hex)
+                except ValueError:
+                    return
+                event = self.events[evt_id]
+                event_manager.accept_mined_seed(event, idx, [seed], miner=pub)
+                self.save_state()
+                self.forward_message(message)
+        elif mtype == GossipMessageType.FINALIZED:
+            event = message.get("event")
+            if event:
+                evt_id = event["header"]["statement_id"]
+                self.events[evt_id] = event
+                apply_mining_results(event, self.balances)
+                for acct, amt in event.get("payouts", {}).items():
+                    self.balances[acct] = self.balances.get(acct, 0.0) + amt
+                self.save_state()
+                self.forward_message(message)
+        elif mtype == GossipMessageType.FINALIZED_BLOCK:
+            block = message.get("block")
+            if block and self.apply_block(block):
+                self.forward_message(message)
+
+    def _message_loop(self) -> None:
+        while True:
+            try:
+                msg = self.receive(timeout=0.05)
+            except queue.Empty:
+                continue
+            self._handle_message(msg)
 
