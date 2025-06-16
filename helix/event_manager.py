@@ -225,6 +225,13 @@ def finalize_event(
         payouts[node_id] = payouts.get(node_id, 0.0) + miner_reward
 
     event["payouts"] = payouts
+    event["payout_summary"] = {
+        "winning_side": "YES" if success else "NO",
+        "yes_total": yes_total,
+        "no_total": no_total,
+        "total_stake": yes_total + no_total,
+        "payouts": payouts,
+    }
 
     hdr_serializable = {
         k: (v.hex() if isinstance(v, (bytes, bytearray)) else v)
@@ -358,6 +365,10 @@ def save_event(event: Dict[str, Any], directory: str) -> str:
         data["header"]["merkle_root"] = data["header"]["merkle_root"].hex()
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    if "payout_summary" in event:
+        payout_file = path / f"{event['header']['statement_id']}_payouts.json"
+        with open(payout_file, "w", encoding="utf-8") as pf:
+            json.dump(event["payout_summary"], pf, indent=2)
     return str(filename)
 
 def verify_originator_signature(event: Dict[str, Any]) -> bool:
@@ -407,6 +418,12 @@ def load_event(path: str) -> Dict[str, Any]:
     data.setdefault("refunds", [0.0] * block_count)
     validate_parent(data)
     return data
+
+
+def load_payout_summary(path: str) -> Dict[str, Any]:
+    """Return payout metadata stored at ``path``."""
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def append_block(block_header: Dict[str, Any], chain_file: str = "blocks.json") -> None:
