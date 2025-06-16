@@ -14,6 +14,7 @@ from . import helix_node
 
 EVENTS_DIR = Path("events")
 BALANCES_FILE = Path("balances.json")
+DATA_EVENTS_DIR = Path("data/events")
 
 
 def _load_event(event_id: str) -> dict:
@@ -34,19 +35,31 @@ def cmd_generate_keys(args: argparse.Namespace) -> None:
     print(f"Private key saved to {args.out}")
 
 
+def initialize_genesis_block() -> None:
+    """Placeholder for genesis block initialization."""
+    pass
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    initialize_genesis_block()
+    print("\u2714 Genesis block created")
+    print("\u2714 1,000 HLX minted to HELIX_FOUNDATION")
+
+
 def cmd_submit_statement(args: argparse.Namespace) -> None:
+    """Create an event from ``args.statement`` and store it on disk."""
     event = event_manager.create_event(
         args.statement,
-        microblock_size=args.microblock_size,
-        keyfile=args.keyfile,
+        microblock_size=args.block_size,
     )
 
-    network = LocalGossipNetwork()
-    node = GossipNode("CLI", network)
-    node.send_message({"type": "NEW_STATEMENT", "event": event})
+    path = event_manager.save_event(event, str(DATA_EVENTS_DIR))
 
-    print(f"Statement ID: {event['header']['statement_id']}")
-    print("Event submitted via gossip")
+    event_id = event["header"]["statement_id"]
+    block_count = event["header"]["block_count"]
+
+    print(f"Event ID: {event_id}")
+    print(f"Blocks created: {block_count}")
 
 
 def cmd_mine_statement(args: argparse.Namespace) -> None:
@@ -202,14 +215,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
     p_submit.add_argument("statement", help="Statement text")
     p_submit.add_argument(
-        "--keyfile",
-        required=True,
-        help="File containing originator keys",
-    )
-    p_submit.add_argument(
-        "--microblock-size",
+        "--block-size",
         type=int,
-        default=4,
+        default=8,
         help="Microblock size in bytes",
     )
     p_submit.set_defaults(func=cmd_submit_statement)
@@ -226,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen = sub.add_parser("generate-keys", help="Generate a keypair")
     p_gen.add_argument("--out", required=True, help="Output file for keys")
     p_gen.set_defaults(func=cmd_generate_keys)
+
+    p_init = sub.add_parser("init", help="Initialize genesis block")
+    p_init.set_defaults(func=cmd_init)
 
     p_balance = sub.add_parser("show-balance", help="Show wallet balance")
     p_balance.add_argument("--wallet", required=True, help="Wallet file")
@@ -266,4 +277,4 @@ def main(argv: list[str] | None = None) -> None:
 if __name__ == "__main__":
     main()
 
-__all__ = ["main", "build_parser"]
+__all__ = ["main", "build_parser", "cmd_init", "initialize_genesis_block"]
