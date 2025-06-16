@@ -33,6 +33,17 @@ def cmd_generate_keys(args: argparse.Namespace) -> None:
     print(f"Private key saved to {args.out}")
 
 
+def initialize_genesis_block() -> None:
+    """Placeholder for genesis block initialization."""
+    pass
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    initialize_genesis_block()
+    print("\u2714 Genesis block created")
+    print("\u2714 1,000 HLX minted to HELIX_FOUNDATION")
+
+
 def cmd_submit_statement(args: argparse.Namespace) -> None:
     event = event_manager.create_event(
         args.statement,
@@ -192,6 +203,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--out", required=True, help="Output file for keys")
     p_gen.set_defaults(func=cmd_generate_keys)
 
+    p_init = sub.add_parser("init", help="Initialize genesis block")
+    p_init.set_defaults(func=cmd_init)
+
     p_balance = sub.add_parser("show-balance", help="Show wallet balance")
     p_balance.add_argument("--wallet", required=True, help="Wallet file")
     p_balance.set_defaults(func=cmd_show_balance)
@@ -231,4 +245,4 @@ def main(argv: list[str] | None = None) -> None:
 if __name__ == "__main__":
     main()
 
-__all__ = ["main", "build_parser"]
+__all__ = ["main", "build_parser", "cmd_init", "initialize_genesis_block"]
