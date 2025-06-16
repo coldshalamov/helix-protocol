@@ -131,6 +131,42 @@ def cmd_view_chain(args: argparse.Namespace) -> None:
         print(f"{height} {bid} {evts} {ts} {miner}")
 
 
+def cmd_view_event(args: argparse.Namespace) -> None:
+    events_dir = Path(args.data_dir) / "events"
+    event_path = events_dir / f"{args.event_id}.json"
+    if not event_path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(event_path))
+
+    mined = sum(1 for m in event.get("mined_status", []) if m)
+    total = event.get("header", {}).get("block_count", len(event.get("microblocks", [])))
+
+    status = "open"
+    if event.get("is_closed"):
+        status = "resolved" if "payouts" in event else "closed"
+
+    merkle_root = event.get("header", {}).get("merkle_root")
+
+    print(f"Statement: {event.get('statement', '')}")
+    print(f"Status: {status}")
+    print(f"Microblocks: {mined}/{total}")
+    if merkle_root is not None:
+        print(f"Merkle Root: {merkle_root}")
+    else:
+        print("Merkle Root: None")
+    print("Bets:")
+    print(json.dumps(event.get("bets", {}), indent=2))
+
+    if "payouts" in event:
+        yes_total = sum(b.get("amount", 0) for b in event.get("bets", {}).get("YES", []))
+        no_total = sum(b.get("amount", 0) for b in event.get("bets", {}).get("NO", []))
+        resolution = "YES" if yes_total > no_total else "NO"
+        print(f"Resolution: {resolution}")
+        print("Payouts:")
+        print(json.dumps(event.get("payouts"), indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix-cli")
     parser.add_argument("--data-dir", default="data", help="Directory for node data")
@@ -161,6 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_chain.add_argument("--path", help="Path to chain JSON file")
     p_chain.set_defaults(func=cmd_view_chain)
 
+    p_view = sub.add_parser("view-event", help="Show event details")
+    p_view.add_argument("event_id", help="Event identifier")
+    p_view.set_defaults(func=cmd_view_event)
+
     return parser
 
 
@@ -179,4 +219,5 @@ __all__ = [
     "cmd_token_stats",
     "cmd_view_chain",
     "cmd_remine_microblock",
+    "cmd_view_event",
 ]
