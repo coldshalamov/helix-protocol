@@ -118,14 +118,17 @@ def cmd_view_chain(args: argparse.Namespace) -> None:
     if not blocks:
         print("No chain data found")
         return
-    for block in blocks:
+    for height, block in enumerate(blocks):
         bid = block.get("id") or block.get("block_id")
-        parent = block.get("parent_id")
         events = block.get("events") or block.get("event_ids") or []
+        if isinstance(events, str):
+            events_list = [events]
+        else:
+            events_list = events
         ts = block.get("timestamp")
         miner = block.get("miner")
-        count = len(events) if isinstance(events, list) else events
-        print(f"{bid} {parent} {count} {ts} {miner}")
+        evts = ",".join(events_list)
+        print(f"{height} {bid} {evts} {ts} {miner}")
 
 
 def build_parser() -> argparse.ArgumentParser:
