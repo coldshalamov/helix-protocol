@@ -2,6 +2,7 @@ import sys
 import types
 import pytest
 import blockchain as bc
+import helix.blockchain as blockchain
 
 pytest.importorskip("nacl")
 
@@ -26,7 +27,7 @@ def test_finalize_appends_block(tmp_path, monkeypatch):
     assert event["is_closed"], "event should be closed once mined"
 
     before = bc.load_chain(str(chain_file))
-    em.finalize_event(event, node_id="NODE")
+    em.finalize_event(event, node_id="NODE", chain_file=str(chain_file), _bc=blockchain)
     after = bc.load_chain(str(chain_file))
 
     assert len(after) == len(before) + 1

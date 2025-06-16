@@ -26,6 +26,7 @@ _load_clean_module("helix.blockchain", ROOT / "helix" / "blockchain.py")
 from helix.helix_node import HelixNode, GossipMessageType
 from helix.gossip import LocalGossipNetwork
 import blockchain as bc
+import helix.blockchain as blockchain
 import helix.blockchain as hbc
 import helix.event_manager as em
 
@@ -57,7 +58,12 @@ def test_finalized_block_sync(tmp_path, monkeypatch):
     monkeypatch.setattr(em.nested_miner, "verify_nested_seed", lambda c, b: True)
 
     def finalize_patch(event, *, node_id=None, chain_file=chain_file):
-        return orig_finalize(event, node_id=node_id, chain_file=str(chain_file))
+        return orig_finalize(
+            event,
+            node_id=node_id,
+            chain_file=str(chain_file),
+            _bc=blockchain,
+        )
 
     monkeypatch.setattr(em, "finalize_event", finalize_patch)
 

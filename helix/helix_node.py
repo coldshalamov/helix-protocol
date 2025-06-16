@@ -26,7 +26,8 @@ from .ledger import (
 from . import statement_registry
 from .gossip import GossipNode, LocalGossipNetwork
 from .network import SocketGossipNetwork
-import blockchain
+import blockchain as bc
+import helix.blockchain as blockchain
 
 
 class GossipMessageType:
@@ -102,7 +103,7 @@ class HelixNode(GossipNode):
         self.registry = statement_registry.StatementRegistry()
         self.registry.rebuild_from_events(str(self.events_dir))
 
-        self.chain: list[dict] = blockchain.load_chain(self.chain_file)
+        self.chain: list[dict] = bc.load_chain(self.chain_file)
         for block in self.chain:
             evt_id = block.get("event_id")
             if not evt_id:
@@ -121,7 +122,7 @@ class HelixNode(GossipNode):
 
         self.chain_tip = self.chain[-1]["block_id"] if self.chain else GENESIS_HASH
         total = get_total_supply(str(self.events_dir))
-        if blockchain.validate_chain(self.chain):
+        if bc.validate_chain(self.chain):
             print(f"Restored tip {self.chain_tip} | Total HLX {total:.4f}")
         else:
             print("Blockchain validation mismatch")
@@ -146,7 +147,7 @@ class HelixNode(GossipNode):
 
     def recover_from_chain(self) -> None:
         self.balances = {}
-        self.chain = blockchain.load_chain(self.chain_file)
+        self.chain = bc.load_chain(self.chain_file)
         for block in self.chain:
             evt_id = block.get("event_id") or (block.get("event_ids") or [None])[0]
             if not evt_id:
@@ -258,8 +259,13 @@ class HelixNode(GossipNode):
 
         if all(event["mined_status"]) and not event.get("finalized"):
             before = len(self.chain)
-            event_manager.finalize_event(event, node_id=self.node_id, chain_file=self.chain_file)
-            self.chain = blockchain.load_chain(self.chain_file)
+            event_manager.finalize_event(
+                event,
+                node_id=self.node_id,
+                chain_file=self.chain_file,
+                _bc=blockchain,
+            )
+            self.chain = bc.load_chain(self.chain_file)
             if len(self.chain) > before:
                 block = dict(self.chain[-1])
                 block["height"] = len(self.chain) - 1
@@ -284,12 +290,12 @@ class HelixNode(GossipNode):
         event_manager.save_event(event, str(self.events_dir))
         if append_chain:
             block = {
-                "parent_id": blockchain.get_chain_tip(self.chain_file),
+                "parent_id": bc.get_chain_tip(self.chain_file),
                 "event_id": event["header"]["statement_id"],
                 "timestamp": time.time(),
                 "miner": self.node_id,
             }
-            blockchain.append_block(block, self.chain_file)
+            bc.append_block(block, self.chain_file)
             self.chain.append(block)
         event["finalized"] = True
         self._send({"type": GossipMessageType.FINALIZED, "event_id": event["header"]["statement_id"]})
