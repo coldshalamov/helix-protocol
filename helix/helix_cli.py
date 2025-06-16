@@ -7,7 +7,7 @@ from . import minihelix
 from . import miner
 from . import signature_utils
 from . import betting_interface
-from .ledger import load_balances
+from .ledger import load_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
 from .blockchain import load_chain
 from . import helix_node
@@ -230,6 +230,30 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     print("statement verified, block saved, rewards distributed")
 
 
+def cmd_token_stats(args: argparse.Namespace) -> None:
+    """Print overall token distribution statistics."""
+    events_dir = Path(args.data_dir) / "events"
+    total_hlx = get_total_supply(str(events_dir))
+    mined_events = 0
+    total_reward = 0.0
+
+    if events_dir.exists():
+        for path in events_dir.glob("*.json"):
+            event = event_manager.load_event(str(path))
+            rewards = event.get("rewards", [])
+            refunds = event.get("refunds", [])
+            reward = sum(rewards) - sum(refunds)
+            if event.get("is_closed"):
+                mined_events += 1
+                total_reward += reward
+
+    avg_reward = total_reward / mined_events if mined_events else 0.0
+
+    print(f"Total HLX Supply: {total_hlx:.4f}")
+    print(f"Total Mined Events: {mined_events}")
+    print(f"Average Reward/Event: {avg_reward:.4f}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="helix")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -276,6 +300,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--show-statement", action="store_true", help="Include raw statement text")
     p_list.set_defaults(func=cmd_list_events)
 
+    p_stats = sub.add_parser("token-stats", help="Show token supply statistics")
+    p_stats.add_argument("--data-dir", default="data", help="Directory containing events")
+    p_stats.set_defaults(func=cmd_token_stats)
+
     p_reasm = sub.add_parser("reassemble-statement", help="Reassemble a statement from microblocks")
     group = p_reasm.add_mutually_exclusive_group(required=True)
     group.add_argument("--event-id", help="Event identifier")
@@ -303,4 +331,4 @@ def main(argv: list[str] | None = None) -> None:
 if __name__ == "__main__":
     main()
 
-__all__ = ["main", "build_parser", "cmd_init", "initialize_genesis_block"]
+__all__ = ["main", "build_parser", "cmd_init", "initialize_genesis_block", "cmd_token_stats"]
