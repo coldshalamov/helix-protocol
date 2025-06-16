@@ -1,6 +1,7 @@
 import sys
 import types
 import blockchain as bc
+import helix.blockchain as blockchain
 
 import pytest
 
@@ -22,7 +23,12 @@ def _make_event(tmp_path, text, chain_file):
     event = em.create_event(text, microblock_size=len(text))
     enc = bytes([1, 1]) + b"a"
     em.accept_mined_seed(event, 0, enc)
-    em.finalize_event(event, node_id="X", chain_file=str(chain_file))
+    em.finalize_event(
+        event,
+        node_id="X",
+        chain_file=str(chain_file),
+        _bc=blockchain,
+    )
     em.save_event(event, str(tmp_path / "events"))
     return event
 

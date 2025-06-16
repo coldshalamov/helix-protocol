@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 import blockchain as bc
+import helix.blockchain as blockchain
 from helix.config import GENESIS_HASH
 
 pytest.importorskip("nacl")
@@ -31,7 +32,12 @@ def test_genesis_block_and_chain(tmp_path, monkeypatch):
         em.accept_mined_seed(genesis_event, idx, [b"a"])
     assert genesis_event["is_closed"]
 
-    em.finalize_event(genesis_event, node_id="GEN", chain_file=str(chain_file))
+    em.finalize_event(
+        genesis_event,
+        node_id="GEN",
+        chain_file=str(chain_file),
+        _bc=blockchain,
+    )
     chain = bc.load_chain(str(chain_file))
     assert len(chain) == 1
     first = chain[0]
@@ -45,7 +51,12 @@ def test_genesis_block_and_chain(tmp_path, monkeypatch):
         em.accept_mined_seed(ev, idx, [b"a"])
     assert ev["is_closed"]
 
-    em.finalize_event(ev, node_id="NODE", chain_file=str(chain_file))
+    em.finalize_event(
+        ev,
+        node_id="NODE",
+        chain_file=str(chain_file),
+        _bc=blockchain,
+    )
     chain = bc.load_chain(str(chain_file))
     assert len(chain) == 2
     second = chain[1]
