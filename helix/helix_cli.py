@@ -20,7 +20,7 @@ DATA_EVENTS_DIR = Path("data/events")
 def _load_event(event_id: str) -> dict:
     path = EVENTS_DIR / f"{event_id}.json"
     if not path.exists():
-        raise SystemExit("Event not found")
+        raise SystemExit(f"Event '{event_id}' not found in {EVENTS_DIR}")
     return event_manager.load_event(str(path))
 
 
@@ -90,7 +90,9 @@ def cmd_mine_event(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
     path = events_dir / f"{args.event_id}.json"
     if not path.exists():
-        raise SystemExit("Event not found")
+        raise SystemExit(
+            f"Event '{args.event_id}' not found in {events_dir}"
+        )
 
     event = event_manager.load_event(str(path))
     mined, elapsed = helix_node.mine_microblocks(event)
@@ -134,7 +136,7 @@ def cmd_list_events(args: argparse.Namespace) -> None:
     """Print a summary of all events in ``args.data_dir``."""
     events_dir = Path(args.data_dir) / "events"
     if not events_dir.exists():
-        raise SystemExit("Events directory not found")
+        raise SystemExit(f"Events directory not found: {events_dir}")
 
     for path in sorted(events_dir.glob("*.json")):
         event = event_manager.load_event(str(path))
@@ -159,7 +161,9 @@ def cmd_reassemble_statement(args: argparse.Namespace) -> None:
     digest = event_manager.sha256(statement.encode("utf-8"))
     expected = event.get("header", {}).get("statement_id")
     if digest != expected:
-        raise SystemExit("SHA-256 mismatch")
+        raise SystemExit(
+            f"SHA-256 mismatch: expected {expected}, computed {digest}"
+        )
 
     author = event.get("originator_pub")
     print(f"Author: {author}")
@@ -215,15 +219,21 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     for idx, block in enumerate(event.get("microblocks", [])):
         seed = event.get("seeds", [])[idx]
         if seed is None:
-            raise SystemExit(f"Missing seed for block {idx}")
+            raise SystemExit(
+                f"Cannot finalize: missing seed for block {idx} in event {args.event_id}"
+            )
         if not event_manager.nested_miner.verify_nested_seed(seed, block):
-            raise SystemExit(f"Seed verification failed for block {idx}")
+            raise SystemExit(
+                f"Seed verification failed for block {idx} in event {args.event_id}"
+            )
 
     statement = event_manager.reassemble_microblocks(event["microblocks"])
     digest = event_manager.sha256(statement.encode("utf-8"))
     expected = event.get("header", {}).get("statement_id")
     if digest != expected:
-        raise SystemExit("SHA-256 mismatch")
+        raise SystemExit(
+            f"SHA-256 mismatch: expected {expected}, computed {digest}"
+        )
 
     event_manager.finalize_event(event)
     _save_event(event)
@@ -255,68 +265,177 @@ def cmd_token_stats(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="helix")
+    parser = argparse.ArgumentParser(
+        prog="helix",
+        description="Command line interface for the Helix protocol",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_submit = sub.add_parser("submit-statement", help="Submit a statement")
-    p_submit.add_argument("statement", help="Statement text")
+    p_submit = sub.add_parser(
+        "submit-statement",
+        help="Create a new event from the provided statement",
+        description="Create a new event and store its microblocks",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_submit.add_argument("statement", metavar="TEXT", help="Statement text")
     p_submit.add_argument(
         "--block-size",
         type=int,
         default=8,
-        help="Microblock size in bytes",
+        metavar="BYTES",
+        help="Size of each microblock in bytes",
     )
     p_submit.set_defaults(func=cmd_submit_statement)
 
-    p_mine = sub.add_parser("mine-statement", help="Mine microblocks for a statement")
-    p_mine.add_argument("--text", required=True, help="Statement text")
+    p_mine = sub.add_parser(
+        "mine-statement",
+        help="Mine a statement immediately and save the event",
+        description="Mine microblocks for the provided statement",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_mine.add_argument("--text", required=True, metavar="TEXT", help="Statement text")
     p_mine.set_defaults(func=cmd_mine_statement)
 
-    p_evt = sub.add_parser("mine", help="Mine microblocks for an event")
-    p_evt.add_argument("event_id", help="Event identifier")
-    p_evt.add_argument("--data-dir", default="data", help="Directory containing events")
+    p_evt = sub.add_parser(
+        "mine",
+        help="Mine remaining microblocks for an event",
+        description="Continue mining microblocks for an existing event",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_evt.add_argument("event_id", metavar="EVENT", help="Event identifier")
+    p_evt.add_argument(
+        "--data-dir",
+        default="data",
+        metavar="DIR",
+        help="Directory containing events",
+    )
     p_evt.set_defaults(func=cmd_mine_event)
 
-    p_gen = sub.add_parser("generate-keys", help="Generate a keypair")
-    p_gen.add_argument("--out", required=True, help="Output file for keys")
+    p_gen = sub.add_parser(
+        "generate-keys",
+        help="Generate a new wallet key pair",
+        description="Create a public/private key pair for signing",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_gen.add_argument(
+        "--out",
+        required=True,
+        metavar="FILE",
+        help="Output file for the private key",
+    )
     p_gen.set_defaults(func=cmd_generate_keys)
 
-    p_init = sub.add_parser("init", help="Initialize genesis block")
+    p_init = sub.add_parser(
+        "init",
+        help="Create the genesis block",
+        description="Initialize the blockchain with the genesis event",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     p_init.set_defaults(func=cmd_init)
 
-    p_balance = sub.add_parser("show-balance", help="Show wallet balance")
-    p_balance.add_argument("--wallet", required=True, help="Wallet file")
+    p_balance = sub.add_parser(
+        "show-balance",
+        help="Display the balance of a wallet",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_balance.add_argument(
+        "--wallet",
+        required=True,
+        metavar="KEYFILE",
+        help="Path to the wallet's private key",
+    )
     p_balance.set_defaults(func=cmd_show_balance)
 
-    p_bet = sub.add_parser("place-bet", help="Submit a bet on an event")
-    p_bet.add_argument("--wallet", required=True, help="Wallet file")
-    p_bet.add_argument("--event-id", required=True, help="Target event id")
-    p_bet.add_argument("--choice", required=True, choices=["YES", "NO"], help="Bet choice")
-    p_bet.add_argument("--amount", required=True, type=int, help="Bet amount")
+    p_bet = sub.add_parser(
+        "place-bet",
+        help="Stake HLX on the outcome of an event",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_bet.add_argument("--wallet", required=True, metavar="KEYFILE", help="Wallet file")
+    p_bet.add_argument("--event-id", required=True, metavar="EVENT", help="Target event id")
+    p_bet.add_argument(
+        "--choice",
+        required=True,
+        choices=["YES", "NO"],
+        metavar="CHOICE",
+        help="Bet choice",
+    )
+    p_bet.add_argument(
+        "--amount",
+        required=True,
+        type=int,
+        metavar="TOKENS",
+        help="Bet amount",
+    )
     p_bet.set_defaults(func=cmd_place_bet)
 
-    p_list = sub.add_parser("list-events", help="List events in data directory")
-    p_list.add_argument("--data-dir", default="data", help="Directory containing events")
-    p_list.add_argument("--show-statement", action="store_true", help="Include raw statement text")
+    p_list = sub.add_parser(
+        "list-events",
+        help="List events in a data directory",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_list.add_argument(
+        "--data-dir",
+        default="data",
+        metavar="DIR",
+        help="Directory containing events",
+    )
+    p_list.add_argument(
+        "--show-statement",
+        action="store_true",
+        help="Include raw statement text",
+    )
     p_list.set_defaults(func=cmd_list_events)
 
-    p_stats = sub.add_parser("token-stats", help="Show token supply statistics")
-    p_stats.add_argument("--data-dir", default="data", help="Directory containing events")
+    p_stats = sub.add_parser(
+        "token-stats",
+        help="Display token supply statistics",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_stats.add_argument(
+        "--data-dir",
+        default="data",
+        metavar="DIR",
+        help="Directory containing events",
+    )
     p_stats.set_defaults(func=cmd_token_stats)
 
-    p_reasm = sub.add_parser("reassemble-statement", help="Reassemble a statement from microblocks")
+    p_reasm = sub.add_parser(
+        "reassemble-statement",
+        help="Verify seeds and output the full statement",
+        description="Reassemble a statement from its microblocks",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     group = p_reasm.add_mutually_exclusive_group(required=True)
-    group.add_argument("--event-id", help="Event identifier")
-    group.add_argument("--path", help="Path to event JSON file")
+    group.add_argument("--event-id", metavar="EVENT", help="Event identifier")
+    group.add_argument("--path", metavar="FILE", help="Path to event JSON file")
     p_reasm.set_defaults(func=cmd_reassemble_statement)
 
-    p_chain = sub.add_parser("view-chain", help="Show blockchain data")
-    p_chain.add_argument("--data-dir", default="data", help="Directory containing chain and events")
-    p_chain.add_argument("--summary", action="store_true", help="Summary output")
+    p_chain = sub.add_parser(
+        "view-chain",
+        help="Show blockchain data",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_chain.add_argument(
+        "--data-dir",
+        default="data",
+        metavar="DIR",
+        help="Directory containing chain and events",
+    )
+    p_chain.add_argument(
+        "--summary",
+        action="store_true",
+        help="Summary output",
+    )
     p_chain.set_defaults(func=cmd_view_chain)
 
-    p_fin = sub.add_parser("finalize", help="Finalize an event")
-    p_fin.add_argument("event_id", help="Event identifier")
+    p_fin = sub.add_parser(
+        "finalize",
+        help="Finalize a mined event and append it to the chain",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_fin.add_argument("event_id", metavar="EVENT", help="Event identifier")
     p_fin.set_defaults(func=cmd_finalize)
 
     return parser
