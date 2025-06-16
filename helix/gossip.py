@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -175,4 +176,57 @@ class GossipNode:
                 return msg
 
 
-__all__ = ["LocalGossipNetwork", "GossipNode"]
+def record_gossip_messages(
+    node: GossipNode,
+    path: str,
+    *,
+    limit: int | None = None,
+    timeout: float | None = None,
+) -> None:
+    """Record messages received by ``node`` to ``path``.
+
+    Messages are stored one-per-line as JSON objects. Recording stops after
+    ``limit`` messages if provided, or when ``receive`` times out.
+    """
+
+    count = 0
+    with open(path, "w", encoding="utf-8") as fh:
+        while limit is None or count < limit:
+            try:
+                msg = node.receive(timeout=timeout)
+            except queue.Empty:
+                break
+            json.dump(msg, fh, separators=(",", ":"))
+            fh.write("\n")
+            fh.flush()
+            count += 1
+
+
+def replay_gossip_messages(node: GossipNode, path: str) -> None:
+    """Replay messages from ``path`` into ``node._handle_message``.
+
+    The provided ``node`` must implement ``_handle_message``. Invalid JSON lines
+    are ignored.
+    """
+
+    if not hasattr(node, "_handle_message"):
+        raise AttributeError("node lacks _handle_message")
+
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            node._handle_message(msg)  # type: ignore[attr-defined]
+
+
+__all__ = [
+    "LocalGossipNetwork",
+    "GossipNode",
+    "record_gossip_messages",
+    "replay_gossip_messages",
+]
