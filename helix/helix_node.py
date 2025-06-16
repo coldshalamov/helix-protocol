@@ -59,6 +59,48 @@ def verify_statement_id(event: Dict[str, Any]) -> bool:
     return digest == stmt_id
 
 
+def initialize_genesis_block(
+    *,
+    chain_file: str = "chain.json",
+    balances_file: str = "balances.json",
+) -> None:
+    """Create the genesis block and initial balances if missing.
+
+    This function writes ``balances_file`` and ``chain_file`` when the chain does
+    not yet exist. Block ``0`` is created with ``type`` set to ``"GENESIS"`` and
+    ``previous_hash`` of 64 zeroes. ``1000`` HLX are minted to the address
+    ``"HELIX_FOUNDATION"``.
+    """
+
+    chain_path = Path(chain_file)
+    if chain_path.exists():
+        return
+
+    balances_path = Path(balances_file)
+    balances: Dict[str, float] = {}
+    if balances_path.exists():
+        try:
+            with open(balances_path, "r", encoding="utf-8") as fh:
+                balances = json.load(fh)
+        except Exception:
+            balances = {}
+
+    balances["HELIX_FOUNDATION"] = balances.get("HELIX_FOUNDATION", 0.0) + 1000.0
+
+    with open(balances_path, "w", encoding="utf-8") as fh:
+        json.dump(balances, fh, indent=2)
+
+    block = {
+        "index": 0,
+        "type": "GENESIS",
+        "previous_hash": "0" * 64,
+        "timestamp": time.time(),
+    }
+
+    with open(chain_path, "w", encoding="utf-8") as fh:
+        json.dump([block], fh, indent=2)
+
+
 class HelixNode(GossipNode):
     def __init__(
         self,
@@ -397,5 +439,6 @@ __all__ = [
     "find_seed",
     "verify_seed",
     "verify_statement_id",
+    "initialize_genesis_block",
     "recover_from_chain",
 ]
