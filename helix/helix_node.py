@@ -130,3 +130,28 @@ __all__ = [
     "mine_microblocks",
     "initialize_genesis_block",
 ]  # HelixNode and recover_from_chain will be defined in separate file to resolve conflicts cleanly
+
+
+class HelixNode:
+    def __init__(self, node_id: str, data_dir: Path, gossip_network: Optional[Any] = None):
+        self.node_id = node_id
+        self.data_dir = data_dir
+        self.gossip = gossip_network or LocalGossipNetwork()
+        self.gossip.register(self)
+        self.wallet = load_balances(data_dir)
+        self.total_supply = get_total_supply(data_dir)
+        self.registry = statement_registry.load_registry(data_dir)
+        self.mempool = queue.Queue()
+        self.running = False
+
+    def start(self):
+        self.running = True
+        print(f"[HelixNode] Node {self.node_id} started. Listening for gossip...")
+
+    def stop(self):
+        self.running = False
+        print(f"[HelixNode] Node {self.node_id} stopped.")
+
+    def receive_message(self, message: Dict[str, Any]):
+        print(f"[HelixNode] Received message: {message.get('type', 'UNKNOWN')}")
+
