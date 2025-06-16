@@ -13,6 +13,7 @@ from .blockchain import load_chain
 
 EVENTS_DIR = Path("events")
 BALANCES_FILE = Path("balances.json")
+DATA_EVENTS_DIR = Path("data/events")
 
 
 def _load_event(event_id: str) -> dict:
@@ -45,18 +46,19 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 
 def cmd_submit_statement(args: argparse.Namespace) -> None:
+    """Create an event from ``args.statement`` and store it on disk."""
     event = event_manager.create_event(
         args.statement,
-        microblock_size=args.microblock_size,
-        keyfile=args.keyfile,
+        microblock_size=args.block_size,
     )
 
-    network = LocalGossipNetwork()
-    node = GossipNode("CLI", network)
-    node.send_message({"type": "NEW_STATEMENT", "event": event})
+    path = event_manager.save_event(event, str(DATA_EVENTS_DIR))
 
-    print(f"Statement ID: {event['header']['statement_id']}")
-    print("Event submitted via gossip")
+    event_id = event["header"]["statement_id"]
+    block_count = event["header"]["block_count"]
+
+    print(f"Event ID: {event_id}")
+    print(f"Blocks created: {block_count}")
 
 
 def cmd_mine_statement(args: argparse.Namespace) -> None:
@@ -183,14 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_submit = sub.add_parser("submit-statement", help="Submit a statement")
     p_submit.add_argument("statement", help="Statement text")
     p_submit.add_argument(
-        "--keyfile",
-        required=True,
-        help="File containing originator keys",
-    )
-    p_submit.add_argument(
-        "--microblock-size",
+        "--block-size",
         type=int,
-        default=4,
+        default=8,
         help="Microblock size in bytes",
     )
     p_submit.set_defaults(func=cmd_submit_statement)
