@@ -1,6 +1,11 @@
 import json
 import os
-from typing import Iterable, Set
+from typing import Iterable, Set, List
+
+try:
+    import blockchain as _bc
+except Exception:  # pragma: no cover - optional blockchain module
+    _bc = None
 
 from . import event_manager
 
@@ -55,6 +60,58 @@ class StatementRegistry:
             if event.get("is_closed"):
                 h = event["header"]["statement_id"]
                 self._hashes.add(h)
+
+    def cleanup_events(self, events_dir: str, *, chain_file: str = "blockchain.jsonl") -> List[str]:
+        """Delete orphan or invalid events in ``events_dir``.
+
+        Files that cannot be loaded or whose ``statement_id`` is not present in
+        the blockchain referenced by ``chain_file`` are removed.  The list of
+        deleted file paths is returned.
+        """
+        removed: List[str] = []
+
+        referenced: Set[str] | None = None
+        if _bc is not None and hasattr(_bc, "load_chain") and os.path.exists(chain_file):
+            try:
+                chain = _bc.load_chain(chain_file)
+            except Exception:  # pragma: no cover - corrupt chain
+                chain = []
+            referenced = set()
+            for block in chain:
+                ids = (
+                    block.get("event_ids")
+                    or block.get("events")
+                    or block.get("event_id")
+                )
+                if isinstance(ids, list):
+                    for eid in ids:
+                        if eid:
+                            referenced.add(str(eid))
+                elif ids:
+                    referenced.add(str(ids))
+
+        if not os.path.isdir(events_dir):
+            return removed
+
+        for fname in os.listdir(events_dir):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(events_dir, fname)
+            evt_id: str | None = None
+            try:
+                event = event_manager.load_event(path)
+                evt_id = event.get("header", {}).get("statement_id")
+            except Exception:
+                pass
+
+            if evt_id is None or (referenced is not None and evt_id not in referenced):
+                try:
+                    os.remove(path)
+                    removed.append(path)
+                except FileNotFoundError:  # pragma: no cover - race condition
+                    pass
+
+        return removed
 
 
 __all__ = ["StatementRegistry"]
