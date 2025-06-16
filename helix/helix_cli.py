@@ -85,6 +85,26 @@ def cmd_mine_statement(args: argparse.Namespace) -> None:
     print(f"Reassembled: {statement}")
 
 
+def cmd_submit_and_mine(args: argparse.Namespace) -> None:
+    """Create, mine and finalize a statement in one step."""
+    event = event_manager.create_event(
+        args.statement, microblock_size=args.block_size
+    )
+    helix_node.mine_microblocks(event)
+    event_manager.save_event(event, str(EVENTS_DIR))
+    if not event.get("is_closed"):
+        print("Event could not be fully mined")
+        return
+
+    event_manager.finalize_event(event)
+    event_manager.save_event(event, str(EVENTS_DIR))
+    chain = load_chain("blockchain.jsonl")
+    block_id = chain[-1]["block_id"] if chain else "N/A"
+    print(f"Event hash: {event['header']['statement_id']}")
+    print(f"Block ID: {block_id}")
+    print(f"Chain length: {len(chain)}")
+
+
 def cmd_mine_event(args: argparse.Namespace) -> None:
     """Mine all unmined microblocks for an existing event."""
     events_dir = Path(args.data_dir) / "events"
@@ -288,6 +308,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_submit.set_defaults(func=cmd_submit_statement)
 
+    p_submit_mine = sub.add_parser(
+        "submit-and-mine",
+        help="Submit a statement and mine all microblocks",
+        description="Create an event, mine it and finalize in one step",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_submit_mine.add_argument("statement", metavar="TEXT", help="Statement text")
+    p_submit_mine.add_argument(
+        "--block-size",
+        type=int,
+        default=8,
+        metavar="BYTES",
+        help="Size of each microblock in bytes",
+    )
+    p_submit_mine.set_defaults(func=cmd_submit_and_mine)
+
     p_mine = sub.add_parser(
         "mine-statement",
         help="Mine a statement immediately and save the event",
@@ -450,4 +486,11 @@ def main(argv: list[str] | None = None) -> None:
 if __name__ == "__main__":
     main()
 
-__all__ = ["main", "build_parser", "cmd_init", "initialize_genesis_block", "cmd_token_stats"]
+__all__ = [
+    "main",
+    "build_parser",
+    "cmd_init",
+    "initialize_genesis_block",
+    "cmd_token_stats",
+    "cmd_submit_and_mine",
+]
