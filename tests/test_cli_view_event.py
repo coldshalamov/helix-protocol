@@ -14,8 +14,10 @@ def test_cli_view_event(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Statement: demo event" in out
     assert "Status: open" in out
-    assert "0/2" in out
-    assert event["header"]["merkle_root"] in out
+    assert "Microblocks: 0/2" in out
+    assert "Microblock Details:" in out
+    assert "Merkle Proof:" in out
+    assert "Votes: YES=0 NO=0" in out
 
     for i in range(event["header"]["block_count"]):
         event_manager.mark_mined(event, i)
@@ -28,4 +30,5 @@ def test_cli_view_event(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Status: resolved" in out
     assert "Resolution: YES" in out
+    assert "Rewards:" in out
     assert '"A": 1.0' in out

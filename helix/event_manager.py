@@ -9,7 +9,7 @@ from datetime import datetime
 from nacl import signing
 
 from .config import GENESIS_HASH
-from .signature_utils import verify_signature, sign_data
+from .signature_utils import verify_signature, sign_data, generate_keypair
 from .merkle_utils import build_merkle_tree
 from . import nested_miner, betting_interface
 from .minihelix import G
@@ -165,13 +165,16 @@ def create_event(
         "merkle_root": merkle_root,
     }
 
-    originator_pub: Optional[str] = None
-    originator_sig: Optional[str] = None
-    if private_key is not None:
-        key_bytes = base64.b64decode(private_key)
-        signing_key = signing.SigningKey(key_bytes)
-        originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
-        originator_sig = sign_data(statement.encode("utf-8"), private_key)
+    if private_key is None:
+        originator_pub, private_key = generate_keypair()
+
+    key_bytes = base64.b64decode(private_key)
+    signing_key = signing.SigningKey(key_bytes)
+    originator_pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
+    originator_sig = sign_data(statement.encode("utf-8"), private_key)
+
+    if not verify_signature(statement.encode("utf-8"), originator_sig, originator_pub):
+        raise ValueError("Invalid originator signature")
 
     event = {
         "header": header,
@@ -186,10 +189,9 @@ def create_event(
         "refunds": [0.0] * block_count,
         "is_closed": False,
         "bets": {"YES": [], "NO": []},
+        "originator_pub": originator_pub,
+        "originator_sig": originator_sig,
     }
-    if originator_pub is not None:
-        event["originator_pub"] = originator_pub
-        event["originator_sig"] = originator_sig
     return event
 
 def mark_mined(event: Dict[str, Any], index: int) -> None:
