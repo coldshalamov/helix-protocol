@@ -10,6 +10,7 @@ from . import betting_interface
 from .ledger import load_balances
 from .gossip import GossipNode, LocalGossipNetwork
 from .blockchain import load_chain
+from . import helix_node
 
 EVENTS_DIR = Path("events")
 BALANCES_FILE = Path("balances.json")
@@ -69,6 +70,35 @@ def cmd_mine_statement(args: argparse.Namespace) -> None:
     print(f"Statement ID: {event['header']['statement_id']}")
     print(f"Saved to {path}")
     print(f"Reassembled: {statement}")
+
+
+def cmd_mine_event(args: argparse.Namespace) -> None:
+    """Mine all unmined microblocks for an existing event."""
+    events_dir = Path(args.data_dir) / "events"
+    path = events_dir / f"{args.event_id}.json"
+    if not path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(path))
+    mined, elapsed = helix_node.mine_microblocks(event)
+    event_manager.save_event(event, str(events_dir))
+
+    micro_size = event.get("header", {}).get(
+        "microblock_size", event_manager.DEFAULT_MICROBLOCK_SIZE
+    )
+    total_saved = 0
+    total_len = 0
+    for seed in event.get("seeds", []):
+        if seed is None:
+            continue
+        length = len(seed) if isinstance(seed, (bytes, bytearray)) else len(seed[0])
+        total_saved += max(0, micro_size - length)
+        total_len += length
+    ratio = (micro_size * len(event.get("microblocks", [])) / total_len) if total_len else 0.0
+
+    print(f"Blocks mined: {mined}")
+    print(f"Compression ratio: {ratio:.2f}x saved={total_saved}")
+    print(f"Mining time: {elapsed:.2f}s")
 
 
 def cmd_show_balance(args: argparse.Namespace) -> None:
@@ -187,6 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_mine = sub.add_parser("mine-statement", help="Mine microblocks for a statement")
     p_mine.add_argument("--text", required=True, help="Statement text")
     p_mine.set_defaults(func=cmd_mine_statement)
+
+    p_evt = sub.add_parser("mine", help="Mine microblocks for an event")
+    p_evt.add_argument("event_id", help="Event identifier")
+    p_evt.add_argument("--data-dir", default="data", help="Directory containing events")
+    p_evt.set_defaults(func=cmd_mine_event)
 
     p_gen = sub.add_parser("generate-keys", help="Generate a keypair")
     p_gen.add_argument("--out", required=True, help="Output file for keys")

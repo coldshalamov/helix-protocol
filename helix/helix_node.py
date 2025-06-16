@@ -58,6 +58,45 @@ def verify_statement_id(event: Dict[str, Any]) -> bool:
     return digest == stmt_id
 
 
+def mine_microblocks(event: Dict[str, Any], *, max_depth: int = 4) -> tuple[int, float]:
+    """Mine all unmined microblocks for ``event``.
+
+    Parameters
+    ----------
+    event:
+        Event dictionary to update in-place.
+    max_depth:
+        Maximum nested depth for :func:`nested_miner.hybrid_mine`.
+
+    Returns
+    -------
+    tuple[int, float]
+        ``(mined_count, elapsed_seconds)``
+    """
+
+    start = time.perf_counter()
+    mined = 0
+    for idx, block in enumerate(event.get("microblocks", [])):
+        if event.get("seeds", [None])[idx] is not None:
+            continue
+        result = nested_miner.hybrid_mine(block, max_depth=max_depth)
+        if result is None:
+            continue
+        seed, depth = result
+        chain = [seed]
+        current = seed
+        for _ in range(1, depth):
+            current = minihelix.G(current, len(block))
+            chain.append(current)
+        header = (depth << 4) | len(seed)
+        encoded = bytes([header]) + b"".join(chain)
+        event_manager.accept_mined_seed(event, idx, encoded)
+        mined += 1
+
+    elapsed = time.perf_counter() - start
+    return mined, elapsed
+
+
 class HelixNode(GossipNode):
     def __init__(
         self,
@@ -391,5 +430,6 @@ __all__ = [
     "find_seed",
     "verify_seed",
     "verify_statement_id",
+    "mine_microblocks",
     "recover_from_chain",
 ]
