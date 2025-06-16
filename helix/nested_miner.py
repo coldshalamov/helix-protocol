@@ -47,6 +47,11 @@ def decode_header(header: int) -> tuple[int, int]:
     return depth, seed_len
 
 
+def _seed_is_valid(seed: bytes, block_size: int) -> bool:
+    """Return True if ``seed`` length does not exceed ``block_size``."""
+    return 0 < len(seed) <= block_size
+
+
 def find_nested_seed(
     target_block: bytes,
     max_depth: int = 10,
@@ -71,20 +76,35 @@ def find_nested_seed(
 
     N = len(target_block)
     nonce = start_nonce
+    g_cache: dict[bytes, bytes] = {}
+    limit = min(max_depth, max_steps)
+
     for _ in range(attempts):
         seed = _seed_from_nonce(nonce, N)
         if seed is None:
             return None
+        nonce += 1
+        if not _seed_is_valid(seed, N):
+            continue
+
         chain = [seed]
         current = seed
-        for _ in range(max_depth):
-            current = G(current, N)
+        if current == target_block:
+            encoded = _encode_chain(chain)
+            chain_bytes = b"".join(chain)
+            return NestedSeed(chain_bytes, 1, encoded)
+
+        for _ in range(limit):
+            nxt = g_cache.get(current)
+            if nxt is None:
+                nxt = G(current, N)
+                g_cache[current] = nxt
+            current = nxt
             if current == target_block:
                 encoded = _encode_chain(chain)
                 chain_bytes = b"".join(chain)
                 return NestedSeed(chain_bytes, len(chain), encoded)
             chain.append(current)
-        nonce += 1
     return None
 
 
