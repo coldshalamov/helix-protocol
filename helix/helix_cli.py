@@ -21,6 +21,46 @@ from . import (
 from .ledger import load_balances, save_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
 from .blockchain import load_chain
+
+
+def cmd_view_chain(args: argparse.Namespace) -> None:
+    """Print a brief summary of the local chain."""
+    base = Path(args.data_dir)
+    chain_path = base / "chain.json"
+    blocks = load_chain(str(chain_path))
+    if not blocks:
+        print("No chain data found")
+        return
+
+    events_dir = base / "events"
+    for idx, block in enumerate(blocks):
+        # determine event identifier
+        evt_ids = (
+            block.get("event_ids")
+            or block.get("events")
+            or block.get("event_id")
+            or []
+        )
+        if isinstance(evt_ids, list):
+            evt_id = evt_ids[0] if evt_ids else ""
+        else:
+            evt_id = evt_ids
+
+        ts = block.get("timestamp", 0)
+
+        micro_count = 0
+        if evt_id:
+            evt_path = events_dir / f"{evt_id}.json"
+            if evt_path.exists():
+                try:
+                    evt = event_manager.load_event(str(evt_path))
+                    micro_count = len(evt.get("microblocks", []))
+                except Exception:
+                    micro_count = 0
+
+        print(f"{idx} {evt_id} {ts} {micro_count}")
+
+    print(f"Total blocks: {len(blocks)}")
 from .config import GENESIS_HASH
 
 def cmd_mine_benchmark(args: argparse.Namespace) -> None:
@@ -160,6 +200,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--data-dir", default="data", help="Data directory")
     p_stats.set_defaults(func=cmd_token_stats)
 
+    p_chain = sub.add_parser("view-chain", help="Display blockchain summary")
+    p_chain.add_argument("--data-dir", default="data", help="Data directory")
+    p_chain.set_defaults(func=cmd_view_chain)
+
     return parser
 
 def main(argv: list[str] | None = None) -> None:
@@ -175,4 +219,5 @@ __all__ = [
     "cmd_view_peers",
     "cmd_export_wallet",
     "cmd_import_wallet",
+    "cmd_view_chain",
 ]
