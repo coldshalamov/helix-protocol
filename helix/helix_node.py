@@ -249,10 +249,13 @@ class HelixNode(GossipNode):
         self.save_state()
 
     def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
-        payouts = event_manager.finalize_event(event, node_id=self.node_id, chain_file=str(self.chain_file))
-        apply_mining_results(event, self.balances)
-        for acct, amount in payouts.items():
-            self.balances[acct] = self.balances.get(acct, 0.0) + amount
+        payouts = event_manager.finalize_event(
+            event,
+            node_id=self.node_id,
+            chain_file=str(self.chain_file),
+            balances_file=str(self.balances_file),
+        )
+        self.balances = load_balances(str(self.balances_file))
         self.save_state()
         self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
         return payouts
@@ -293,6 +296,7 @@ class HelixNode(GossipNode):
             if event:
                 evt_id = event["header"]["statement_id"]
                 self.events[evt_id] = event
+                update_total_supply(event.get("miner_reward", 0.0))
                 apply_mining_results(event, self.balances)
                 for acct, amt in event.get("payouts", {}).items():
                     self.balances[acct] = self.balances.get(acct, 0.0) + amt
