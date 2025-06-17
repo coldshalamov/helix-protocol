@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Utilities for mining nested MiniHelix seeds."""
 
+from . import minihelix
 from .minihelix import G, mine_seed
 
 
@@ -190,3 +191,36 @@ def hybrid_mine(
         return seed, 1
 
     return None
+
+def unpack_seed_chain(seed_chain: list[bytes] | bytes, *, block_size: int | None = None) -> bytes:
+    """Return the microblock generated from ``seed_chain``.
+
+    The chain may be provided either as a list of seeds or the encoded
+    byte form returned by :func:`find_nested_seed`. When ``block_size`` is
+    not provided, it is inferred from the chain if possible. The returned
+    bytes are produced by applying :func:`minihelix.G` ``depth`` times to the
+    base seed.
+    """
+    if isinstance(seed_chain, (bytes, bytearray)):
+        if not seed_chain:
+            return b""
+        depth = seed_chain[0]
+        seed_len = seed_chain[1]
+        seed = seed_chain[2 : 2 + seed_len]
+        rest = seed_chain[2 + seed_len :]
+        if block_size is None:
+            block_size = len(rest) // (depth - 1) if depth > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
+        chain: list[bytes] = [seed]
+        for i in range(depth - 1):
+            start = i * block_size
+            chain.append(rest[start : start + block_size])
+    else:
+        chain = list(seed_chain)
+        if block_size is None:
+            block_size = len(chain[1]) if len(chain) > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
+
+    current = chain[0]
+    for _ in range(len(chain)):
+        current = G(current, block_size)
+    return current
+

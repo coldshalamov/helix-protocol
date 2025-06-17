@@ -21,6 +21,46 @@ from . import (
 from .ledger import load_balances, save_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
 from .blockchain import load_chain
+
+
+def cmd_view_chain(args: argparse.Namespace) -> None:
+    """Print a brief summary of the local chain."""
+    base = Path(args.data_dir)
+    chain_path = base / "chain.json"
+    blocks = load_chain(str(chain_path))
+    if not blocks:
+        print("No chain data found")
+        return
+
+    events_dir = base / "events"
+    for idx, block in enumerate(blocks):
+        # determine event identifier
+        evt_ids = (
+            block.get("event_ids")
+            or block.get("events")
+            or block.get("event_id")
+            or []
+        )
+        if isinstance(evt_ids, list):
+            evt_id = evt_ids[0] if evt_ids else ""
+        else:
+            evt_id = evt_ids
+
+        ts = block.get("timestamp", 0)
+
+        micro_count = 0
+        if evt_id:
+            evt_path = events_dir / f"{evt_id}.json"
+            if evt_path.exists():
+                try:
+                    evt = event_manager.load_event(str(evt_path))
+                    micro_count = len(evt.get("microblocks", []))
+                except Exception:
+                    micro_count = 0
+
+        print(f"{idx} {evt_id} {ts} {micro_count}")
+
+    print(f"Total blocks: {len(blocks)}")
 from .config import GENESIS_HASH
 
 def cmd_mine_benchmark(args: argparse.Namespace) -> None:
@@ -108,6 +148,7 @@ def cmd_import_wallet(args: argparse.Namespace) -> None:
     balances[pub] = balance
     save_balances(balances, str(args.balances))
 
+<<<<<<< codex/add-verify-statement-subcommand-to-helix_cli.py
 
 def cmd_verify_statement(args: argparse.Namespace) -> None:
     """Verify mined event integrity."""
@@ -127,6 +168,12 @@ def cmd_verify_statement(args: argparse.Namespace) -> None:
         print("Verification succeeded")
     else:
         print("Verification failed")
+=======
+def cmd_show_balance(args: argparse.Namespace) -> None:
+    pub, _ = signature_utils.load_keys(args.wallet)
+    balances = load_balances(str(args.balances))
+    print(balances.get(pub, 0))
+>>>>>>> main
 
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
@@ -184,6 +231,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--data-dir", default="data", help="Data directory")
     p_stats.set_defaults(func=cmd_token_stats)
 
+<<<<<<< codex/add-show-balance-subcommand
+    p_balance = sub.add_parser("show-balance", help="Show wallet HLX balance")
+    p_balance.add_argument("--wallet", required=True, help="Wallet file")
+    p_balance.add_argument("--balances", required=True, help="Balances file")
+    p_balance.set_defaults(func=cmd_show_balance)
+=======
+    p_chain = sub.add_parser("view-chain", help="Display blockchain summary")
+    p_chain.add_argument("--data-dir", default="data", help="Data directory")
+    p_chain.set_defaults(func=cmd_view_chain)
+>>>>>>> main
+
     return parser
 
 def main(argv: list[str] | None = None) -> None:
@@ -199,5 +257,13 @@ __all__ = [
     "cmd_view_peers",
     "cmd_export_wallet",
     "cmd_import_wallet",
+<<<<<<< codex/add-verify-statement-subcommand-to-helix_cli.py
     "cmd_verify_statement",
+=======
+<<<<<<< codex/add-show-balance-subcommand
+    "cmd_show_balance",
+=======
+    "cmd_view_chain",
+>>>>>>> main
+>>>>>>> main
 ]

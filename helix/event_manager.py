@@ -223,6 +223,15 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
 
+
+def mint_uncompressed_seeds(event: Dict[str, Any]) -> None:
+    """Mark all microblocks as mined using the blocks themselves as seeds."""
+    microblocks = event.get("microblocks", [])
+    for idx, block in enumerate(microblocks):
+        event["seeds"][idx] = block
+        event["seed_depths"][idx] = 1
+        mark_mined(event, idx)
+
 def finalize_event(
     event: Dict[str, Any], *, node_id: Optional[str] = None, chain_file: str = "blockchain.jsonl",
     balances_file: Optional[str] = None, _bc: Any | None = None
@@ -436,6 +445,18 @@ def accept_mined_seed(
         print(f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}")
 
     return refund
+
+
+def mint_uncompressed_seeds(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark each microblock as mined using its raw bytes as the seed."""
+
+    blocks = event.get("microblocks", [])
+    event.setdefault("mined", [False] * len(blocks))
+    for i, block in enumerate(blocks):
+        accept_mined_seed(event, i, [block])
+        event["mined"][i] = True
+
+    return event
 
 def save_event(event: Dict[str, Any], directory: str) -> str:
     path = Path(directory)
