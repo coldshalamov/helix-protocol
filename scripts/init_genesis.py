@@ -4,24 +4,19 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from helix import event_manager, signature_utils, nested_miner
 
 
 def main() -> None:
-    # 1. Load or create Ed25519 wallet keys
+    # Load or create wallet
     pub, priv = signature_utils.load_or_create_keys("wallet.json")
 
-    # 2. The genesis statement
     statement = "Helix is to data what logic is to language."
-
-    # 3. Set microblock size
     microblock_size = 3
-
-    # 4. Sign the statement
     signature = signature_utils.sign_statement(statement, priv)
 
-    # 5. Create the event
     event = event_manager.create_event(
         statement=statement,
         microblock_size=microblock_size,
@@ -30,11 +25,18 @@ def main() -> None:
     event["originator_pub"] = pub
     event["originator_sig"] = signature
 
-    # 6. Mine each microblock
+    # Prepare mining
+    mined_count = 0
+    total_blocks = len(event["microblocks"])
+    print(f"Mining {total_blocks} microblocks with max_depth=500, attempts=500000...")
+
     for idx, block in enumerate(event["microblocks"]):
-        result = nested_miner.find_nested_seed(block, max_depth=500)
+        start_time = time.time()
+        result = nested_miner.find_nested_seed(block, max_depth=500, attempts=500_000)
+        elapsed = time.time() - start_time
+
         if result is None:
-            print(f"Microblock {idx}: no seed found")
+            print(f"Microblock {idx}: ❌ no seed found (after {elapsed:.2f}s)")
             continue
 
         event["seeds"][idx] = result.encoded
@@ -43,14 +45,21 @@ def main() -> None:
 
         seed_len = result.encoded[1]
         ratio = microblock_size / seed_len if seed_len else 0
-        print(f"Microblock {idx}: depth={result.depth}, compression={ratio:.2f}x")
+        print(
+            f"Microblock {idx}: ✅ depth={result.depth}, compression={ratio:.2f}x, time={elapsed:.2f}s"
+        )
+        mined_count += 1
 
-    # 7. Save event to disk
+    if mined_count != total_blocks:
+        raise RuntimeError(
+            f"Only {mined_count}/{total_blocks} microblocks were successfully mined."
+        )
+
+    # Save and finalize
     events_dir = Path("data/events")
     events_dir.mkdir(parents=True, exist_ok=True)
     event_manager.save_event(event, str(events_dir))
 
-    # 8. Finalize the event
     payouts = event_manager.finalize_event(
         event=event,
         node_id="GENESIS_NODE",
@@ -58,23 +67,10 @@ def main() -> None:
         balances_file="balances.json",
     )
 
-    # 9. Report results
-    chain_file = Path("chain.json")
-    block_hash = None
-    if chain_file.exists():
-        try:
-            with open(chain_file, "r", encoding="utf-8") as fh:
-                lines = fh.readlines()
-                if lines:
-                    block = json.loads(lines[-1])
-                    block_hash = block.get("block_id")
-        except Exception:
-            pass
-
-    print("Finalized block hash:", block_hash)
+    # Final print
+    print("✅ Finalized Genesis block")
     print("Statement:", statement)
-    print("Payout distribution:")
-    print(json.dumps(payouts, indent=2))
+    print("Payouts:", json.dumps(payouts, indent=2))
 
 
 if __name__ == "__main__":
