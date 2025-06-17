@@ -166,6 +166,41 @@ def cmd_reassemble(args: argparse.Namespace) -> None:
     print(statement)
 
 
+def cmd_verify_statement(args: argparse.Namespace) -> None:
+    """Verify and output a finalized statement."""
+    events_dir = Path(args.data_dir) / "events"
+    path = events_dir / f"{args.statement_hash}.json"
+    if not path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(path))
+
+    blocks = event.get("microblocks", [])
+    seeds = event.get("seeds", [])
+
+    if len(blocks) != len(seeds) or any(s is None for s in seeds):
+        raise SystemExit("missing mined seeds")
+
+    for idx, block in enumerate(blocks):
+        seed_chain = seeds[idx]
+        if not event_manager.verify_seed_chain(seed_chain, block):
+            raise SystemExit(f"invalid seed for block {idx}")
+
+    root, _tree = merkle_utils.build_merkle_tree(blocks)
+    hdr_root = event.get("header", {}).get("merkle_root")
+    if isinstance(hdr_root, str):
+        hdr_root = bytes.fromhex(hdr_root)
+    if hdr_root != root:
+        raise SystemExit("Merkle root mismatch")
+
+    statement = event_manager.reassemble_microblocks(blocks)
+    digest = event_manager.sha256(statement.encode("utf-8"))
+    if digest != args.statement_hash:
+        raise SystemExit("SHA-256 mismatch")
+
+    print(statement)
+
+
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
     total = get_total_supply(str(events_dir))
@@ -293,6 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_view.add_argument("event_id", help="Event identifier")
     p_view.set_defaults(func=cmd_view_event)
 
+    p_verify = sub.add_parser(
+        "verify-statement", help="Verify statement integrity"
+    )
+    p_verify.add_argument("statement_hash", help="Statement hash")
+    p_verify.set_defaults(func=cmd_verify_statement)
+
     return parser
 
 
@@ -312,4 +353,5 @@ __all__ = [
     "cmd_view_chain",
     "cmd_remine_microblock",
     "cmd_view_event",
+    "cmd_verify_statement",
 ]
