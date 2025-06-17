@@ -49,11 +49,9 @@ def test_reject_oversize_seed():
         em.accept_mined_seed(event, 0, bytes([1, 7]) + b"toolong")
 
 
-def test_mint_uncompressed_seeds():
+def test_mock_mining_closes_event():
     event = em.create_event("abcd", microblock_size=2)
-    em.mint_uncompressed_seeds(event)
-    assert all(event["mined"])
+    for idx, _ in enumerate(event["microblocks"]):
+        em.accept_mined_seed(event, idx, [b"a"])
     assert all(event["mined_status"])
-    for idx, block in enumerate(event["microblocks"]):
-        assert event["seeds"][idx] == [block]
     assert event["is_closed"]

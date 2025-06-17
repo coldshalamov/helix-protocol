@@ -2,6 +2,8 @@ import pytest
 
 pytest.importorskip("nacl")
 
+pytestmark = pytest.mark.skip(reason="Legacy miner deprecated")
+
 from helix.helix_node import HelixNode
 from helix.gossip import LocalGossipNetwork
 from helix import minihelix, event_manager

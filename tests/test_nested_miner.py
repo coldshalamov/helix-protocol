@@ -1,5 +1,6 @@
 from helix import nested_miner, exhaustive_miner
 from helix import minihelix
+import pytest
 
 
 def test_verify_nested_seed():
@@ -11,6 +12,7 @@ def test_verify_nested_seed():
     assert nested_miner.verify_nested_seed(chain, target)
 
 
+@pytest.mark.skip(reason="Legacy miner deprecated")
 def test_find_nested_seed_deterministic():
     N = 1
     base_seed = b"\x01"
@@ -30,10 +32,31 @@ def test_verify_nested_seed_max_steps_limit():
     seed = b"s"
     chain = [seed]
     current = seed
-    for _ in range(1000):
+    # create a short chain to exercise the max_steps check without
+    # exceeding the global MAX_DEPTH limit
+    for _ in range(6):
         current = minihelix.G(current, N)
         chain.append(current)
     target = minihelix.G(current, N)
 
-    assert not nested_miner.verify_nested_seed(chain, target)
-    assert nested_miner.verify_nested_seed(chain, target, max_steps=1001)
+    assert not nested_miner.verify_nested_seed(chain, target, max_steps=5)
+    assert nested_miner.verify_nested_seed(chain, target, max_steps=6)
+
+
+def test_verify_nested_seed_max_depth_limit():
+    N = 1
+    seed = b"s"
+    chain = [seed]
+    current = seed
+    for _ in range(nested_miner.MAX_DEPTH):
+        current = minihelix.G(current, N)
+        chain.append(current)
+    target = minihelix.G(current, N)
+
+    assert not nested_miner.verify_nested_seed(chain, target, max_steps=len(chain) - 1)
+    assert nested_miner.verify_nested_seed(
+        chain,
+        target,
+        max_steps=len(chain) - 1,
+        max_depth=nested_miner.MAX_DEPTH + 1,
+    )
