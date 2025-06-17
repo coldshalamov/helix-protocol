@@ -6,6 +6,7 @@ import os
 import time
 import hashlib
 import socket
+import base64
 from pathlib import Path
 
 from . import (
@@ -17,17 +18,14 @@ from . import (
     betting_interface,
     helix_node,
 )
-from .ledger import load_balances, get_total_supply, compression_stats
+from .ledger import load_balances, save_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
 from .blockchain import load_chain
 from .config import GENESIS_HASH
 
-# ----------------------------- Commands -----------------------------
-
 def cmd_mine_benchmark(args: argparse.Namespace) -> None:
     size = event_manager.DEFAULT_MICROBLOCK_SIZE
     block = os.urandom(size)
-
     calls = 0
     orig_mh_G = minihelix.G
     orig_nm_G = nested_miner.G
@@ -57,7 +55,6 @@ def cmd_mine_benchmark(args: argparse.Namespace) -> None:
     print(f"G() calls: {calls}")
     print(f"Compression ratio: {ratio:.2f}x")
     print(f"Seed length: {len(seed)} depth={depth}")
-
 
 def cmd_view_peers(args: argparse.Namespace) -> None:
     path = Path(args.peers_file)
@@ -89,6 +86,27 @@ def cmd_view_peers(args: argparse.Namespace) -> None:
                 reachable = False
         print(f"{node_id} last_seen={last_seen} reachable={reachable}")
 
+def cmd_export_wallet(args: argparse.Namespace) -> None:
+    pub, priv = signature_utils.load_keys(args.wallet)
+    balances = load_balances(str(args.balances))
+    data = {
+        "public_key": pub,
+        "private_key": priv,
+        "balance": balances.get(pub, 0),
+    }
+    encoded = base64.b64encode(json.dumps(data).encode("utf-8")).decode("ascii")
+    print(encoded)
+
+def cmd_import_wallet(args: argparse.Namespace) -> None:
+    raw = base64.b64decode(args.data)
+    info = json.loads(raw.decode("utf-8"))
+    pub = info["public_key"]
+    priv = info["private_key"]
+    balance = info.get("balance", 0)
+    signature_utils.save_keys(args.wallet, pub, priv)
+    balances = load_balances(str(args.balances))
+    balances[pub] = balance
+    save_balances(balances, str(args.balances))
 
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
@@ -112,8 +130,6 @@ def cmd_token_stats(args: argparse.Namespace) -> None:
     print(f"Total Mined Events: {mined_events}")
     print(f"Average Reward/Event: {avg_reward:.4f}")
 
-# ----------------------------- Parser -----------------------------
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="helix",
@@ -122,29 +138,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # Benchmark mining
     p_bench = sub.add_parser("mine-benchmark", help="Benchmark nested mining")
     p_bench.add_argument("--depth", type=int, default=4, help="Max nesting depth")
     p_bench.set_defaults(func=cmd_mine_benchmark)
 
-    # View peers
     p_peers = sub.add_parser("view-peers", help="Display peer reachability")
     p_peers.add_argument("--peers-file", default="peers.json", help="Peers file path")
     p_peers.set_defaults(func=cmd_view_peers)
 
-    # Token stats
-    p_stats = sub.add_parser("token-stats", help="Display total HLX stats")
+    p_export = sub.add_parser("export-wallet", help="Export wallet keys and balance")
+    p_export.add_argument("--wallet", required=True, help="Wallet file")
+    p_export.add_argument("--balances", required=True, help="Balances file")
+    p_export.set_defaults(func=cmd_export_wallet)
+
+    p_import = sub.add_parser("import-wallet", help="Import wallet keys and balance")
+    p_import.add_argument("data", help="Base64 wallet backup")
+    p_import.add_argument("--wallet", required=True, help="Wallet file")
+    p_import.add_argument("--balances", required=True, help="Balances file")
+    p_import.set_defaults(func=cmd_import_wallet)
+
+    p_stats = sub.add_parser("token-stats", help="Display token supply stats")
     p_stats.add_argument("--data-dir", default="data", help="Data directory")
     p_stats.set_defaults(func=cmd_token_stats)
 
     return parser
 
-
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)
-
 
 __all__ = [
     "main",
@@ -152,4 +174,6 @@ __all__ = [
     "cmd_token_stats",
     "cmd_mine_benchmark",
     "cmd_view_peers",
+    "cmd_export_wallet",
+    "cmd_import_wallet",
 ]
