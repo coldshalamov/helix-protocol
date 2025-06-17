@@ -137,6 +137,29 @@ def verify_seed_chain(seed_chain: List[bytes] | bytes, block: bytes) -> bool:
     current = G(current, N)
     return current == block
 
+
+def verify_statement(event: Dict[str, Any]) -> bool:
+    """Return ``True`` if the event's mined data is internally consistent."""
+
+    blocks = event.get("microblocks", [])
+    seeds = event.get("seeds", [])
+
+    if len(blocks) != len(seeds) or any(s is None for s in seeds):
+        return False
+
+    for block, chain in zip(blocks, seeds):
+        if not verify_seed_chain(chain, block):
+            return False
+
+    root, _tree = build_merkle_tree(blocks)
+    hdr_root = event.get("header", {}).get("merkle_root")
+    if isinstance(hdr_root, str):
+        hdr_root = bytes.fromhex(hdr_root)
+    if hdr_root != root:
+        return False
+
+    return True
+
 def create_event(
     statement: str,
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
