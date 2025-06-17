@@ -67,3 +67,19 @@ def test_receive_deduplicates():
     with pytest.raises(queue.Empty):
         node_b.receive(timeout=0.1)
     assert received["type"] == "STATEMENT"
+
+
+def test_network_filters_duplicate():
+    network = LocalGossipNetwork()
+    node_a = GossipNode("A", network)
+    node_b = GossipNode("B", network)
+
+    msg = {"type": "STATEMENT", "event_id": "z", "index": 3}
+    network.send("A", msg)
+    network.send("A", msg)
+
+    assert node_b._queue.qsize() == 1
+    received = node_b.receive(timeout=1)
+    with pytest.raises(queue.Empty):
+        node_b.receive(timeout=0.1)
+    assert received["type"] == "STATEMENT"
