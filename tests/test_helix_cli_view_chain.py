@@ -19,9 +19,17 @@ def test_view_chain(tmp_path, capsys):
     capsys.readouterr()  # clear output from mark_mined
 
     evt_id = event["header"]["statement_id"]
-    chain_data = [{"block_id": "b1", "parent_id": "genesis", "event_ids": [evt_id]}]
+    chain_data = [
+        {
+            "block_id": "b1",
+            "parent_id": "genesis",
+            "event_ids": [evt_id],
+            "timestamp": 123,
+        }
+    ]
     (tmp_path / "chain.json").write_text(json.dumps(chain_data))
 
-    helix_cli.main(["view-chain", "--data-dir", str(tmp_path), "--summary"])
-    out = capsys.readouterr().out.strip()
-    assert f"0 {evt_id} b1 1" in out
+    helix_cli.main(["view-chain", "--data-dir", str(tmp_path)])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert out[0] == f"0 {evt_id} 123 1"
+    assert out[-1] == "Total blocks: 1"
