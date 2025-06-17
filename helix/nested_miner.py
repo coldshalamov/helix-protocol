@@ -26,6 +26,11 @@ def _encode_chain(chain: list[bytes]) -> bytes:
     return bytes([depth, seed_len]) + b"".join(chain)
 
 
+def encode_chain(chain: list[bytes]) -> bytes:
+    """Encode ``chain`` into the on-chain byte representation."""
+    return _encode_chain(chain)
+
+
 def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
     """Decode encoded seed chain into list of seeds for verification."""
     if not encoded:
