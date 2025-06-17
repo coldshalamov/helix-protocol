@@ -3,6 +3,55 @@ import hashlib
 import os
 from pathlib import Path
 from typing import List, Dict
+from helix.config import GENESIS_HASH
+
+
+def get_chain_tip(path: str = "blockchain.jsonl") -> str:
+    """Return the ``block_id`` of the last block in ``path``."""
+    file = Path(path)
+    if not file.exists():
+        return GENESIS_HASH
+
+    last_line = None
+    with open(file, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                last_line = line
+
+    if not last_line:
+        return GENESIS_HASH
+
+    try:
+        entry = json.loads(last_line)
+    except json.JSONDecodeError:
+        return GENESIS_HASH
+
+    return entry.get("block_id", GENESIS_HASH)
+
+from helix.config import GENESIS_HASH
+
+
+def get_chain_tip(path: str = "blockchain.jsonl") -> str:
+    """Return ``block_id`` of the last block in ``path``."""
+    file = Path(path)
+    if not file.exists():
+        return GENESIS_HASH
+
+    last: str | None = None
+    with open(file, "r", encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                last = line
+
+    if not last:
+        return GENESIS_HASH
+
+    try:
+        entry = json.loads(last)
+    except json.JSONDecodeError:
+        return GENESIS_HASH
+
+    return entry.get("block_id", GENESIS_HASH)
 
 
 def append_block(block_header: Dict, path: str = "blockchain.jsonl") -> None:

@@ -38,6 +38,24 @@ class GossipMessageType:
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
     FINALIZED_BLOCK = "FINALIZED_BLOCK"
+    CHAIN_TIP = "CHAIN_TIP"
+    CHAIN_REQUEST = "CHAIN_REQUEST"
+    CHAIN_RESPONSE = "CHAIN_RESPONSE"
+
+
+__all__ = [
+    "LocalGossipNetwork",
+    "GossipNode",
+    "GossipMessageType",
+    "simulate_mining",
+    "find_seed",
+    "verify_seed",
+    "verify_statement_id",
+    "mine_microblocks",
+    "initialize_genesis_block",
+    "HelixNode",
+    "recover_from_chain",
+]
 
 
 def simulate_mining(index: int) -> None:
@@ -119,24 +137,38 @@ def initialize_genesis_block(
         json.dump([block], fh, indent=2)
 
 
-__all__ = [
-    "LocalGossipNetwork",
-    "GossipNode",
-    "GossipMessageType",
-    "simulate_mining",
-    "find_seed",
-    "verify_seed",
-    "verify_statement_id",
-    "mine_microblocks",
-    "initialize_genesis_block",
-    "HelixNode",
-    "recover_from_chain",
-]  # HelixNode and recover_from_chain will be defined in separate file to resolve conflicts cleanly
+def recover_from_chain(chain: List[Dict[str, Any]], events_dir: str) -> tuple[Dict[str, Dict[str, Any]], Dict[str, float]]:
+    events: Dict[str, Dict[str, Any]] = {}
+    balances: Dict[str, float] = {}
+    path = Path(events_dir)
+    for block in chain:
+        ids = block.get("event_ids") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        for evt_id in ids:
+            evt_file = path / f"{evt_id}.json"
+            if not evt_file.exists():
+                continue
+            try:
+                event = event_manager.load_event(str(evt_file))
+            except Exception:
+                continue
+            events[evt_id] = event
+            apply_mining_results(event, balances)
+            for acct, amt in event.get("payouts", {}).items():
+                balances[acct] = balances.get(acct, 0.0) + amt
+    return events, balances
+
+
+def _write_chain(chain: List[Dict[str, Any]], path: str) -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        for block in chain:
+            blk = dict(block)
+            blk.pop("height", None)
+            fh.write(json.dumps(blk) + "\n")
 
 
 class HelixNode(GossipNode):
-    """Minimal networked node used in the tests."""
-
     def __init__(
         self,
         *,
@@ -164,6 +196,7 @@ class HelixNode(GossipNode):
 
         self.events: Dict[str, Dict[str, Any]] = {}
         self.balances: Dict[str, float] = load_balances(str(self.balances_file))
+        self.fork_chain: List[Dict[str, Any]] | None = None
 
         gf = Path(genesis_file)
         if gf.exists():
@@ -177,10 +210,6 @@ class HelixNode(GossipNode):
 
         self.load_state()
         self.blockchain = bc.load_chain(str(self.chain_file))
-        self.fork_chain: List[Dict[str, Any]] | None = None
-
-    # ------------------------------------------------------------------
-    # Persistence helpers
 
     def load_state(self) -> None:
         self.events = {}
@@ -198,175 +227,8 @@ class HelixNode(GossipNode):
             event_manager.save_event(event, str(self.events_dir))
         save_balances(self.balances, str(self.balances_file))
 
-    def import_event(self, event: Dict[str, Any]) -> None:
-        try:
-            event_manager.validate_parent(event)
-        except Exception:
-            raise
-        evt_id = event["header"]["statement_id"]
-        self.events[evt_id] = event
-
-    # ------------------------------------------------------------------
-    # Event operations
-
-    def create_event(self, statement: str, private_key: str | None = None) -> Dict[str, Any]:
-        priv = private_key or self.private_key
-        parent = bc.get_chain_tip(str(self.chain_file))
-        event = event_manager.create_event(statement, self.microblock_size, parent_id=parent, private_key=priv)
-        fee = event["header"]["block_count"]
-        event["header"]["gas_fee"] = fee
-        originator = event.get("originator_pub")
-        if originator:
-            self.balances[originator] = self.balances.get(originator, 0.0) - fee
-        return event
-
-    def mine_event(self, event: Dict[str, Any]) -> None:
-        evt_id = event["header"]["statement_id"]
-        for idx, block in enumerate(event.get("microblocks", [])):
-            if event["seeds"][idx] is not None:
-                continue
-            simulate_mining(idx)
-            seed = find_seed(block)
-            if seed is None or not verify_seed(seed, block):
-                continue
-            event_manager.accept_mined_seed(event, idx, [seed], miner=self.node_id)
-            if self.private_key and self.public_key:
-                payload = f"{evt_id}:{idx}:{seed.hex()}".encode("utf-8")
-                sig = signature_utils.sign_data(payload, self.private_key)
-                msg = {
-                    "type": GossipMessageType.MINED_MICROBLOCK,
-                    "event_id": evt_id,
-                    "index": idx,
-                    "seed": seed.hex(),
-                    "pubkey": self.public_key,
-                    "signature": sig,
-                }
-            else:
-                msg = {
-                    "type": GossipMessageType.MINED_MICROBLOCK,
-                    "event_id": evt_id,
-                    "index": idx,
-                    "seed": seed.hex(),
-                }
-            self.send_message(msg)
-        self.save_state()
-
-    def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
-        payouts = event_manager.finalize_event(
-            event, node_id=self.node_id, chain_file=str(self.chain_file)
-        )
-        apply_mining_results(event, self.balances)
-        for acct, amount in payouts.items():
-            self.balances[acct] = self.balances.get(acct, 0.0) + amount
-        self.save_state()
-
-        # update in-memory chain and broadcast the new block
-        chain = bc.load_chain(str(self.chain_file))
-        if chain:
-            self.blockchain = chain
-            block = dict(chain[-1])
-            block["height"] = len(chain) - 1
-            self.broadcast_block(block)
-
-        self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
-        return payouts
-
-    # ------------------------------------------------------------------
-    # Gossip handling
-
-    def _handle_message(self, message: Dict[str, Any]) -> None:
-        mtype = message.get("type")
-        if mtype == GossipMessageType.NEW_STATEMENT:
-            event = message.get("event")
-            if event and verify_statement_id(event):
-                evt_id = event["header"]["statement_id"]
-                self.events[evt_id] = event
-                self.save_state()
-                self.forward_message(message)
-        elif mtype == GossipMessageType.MINED_MICROBLOCK:
-            evt_id = message.get("event_id")
-            idx = message.get("index")
-            seed_hex = message.get("seed")
-            pub = message.get("pubkey")
-            sig = message.get("signature")
-            if evt_id in self.events and idx is not None and seed_hex:
-                if pub and sig:
-                    payload = f"{evt_id}:{idx}:{seed_hex}".encode("utf-8")
-                    if not signature_utils.verify_signature(payload, sig, pub):
-                        return
-                try:
-                    seed = bytes.fromhex(seed_hex)
-                except ValueError:
-                    return
-                event = self.events[evt_id]
-                event_manager.accept_mined_seed(event, idx, [seed], miner=pub)
-                self.save_state()
-                self.forward_message(message)
-        elif mtype == GossipMessageType.FINALIZED:
-            event = message.get("event")
-            if event:
-                evt_id = event["header"]["statement_id"]
-                self.events[evt_id] = event
-                apply_mining_results(event, self.balances)
-                for acct, amt in event.get("payouts", {}).items():
-                    self.balances[acct] = self.balances.get(acct, 0.0) + amt
-                self.save_state()
-                self.forward_message(message)
-        elif mtype == GossipMessageType.FINALIZED_BLOCK:
-            block = message.get("block")
-            if block:
-                if self.apply_block(block):
-                    bc.append_block({k: v for k, v in block.items() if k != "height"}, path=str(self.chain_file))
-                else:
-                    self._track_fork(block)
-                self._resolve_forks()
-                self.forward_message(message)
-
-    def _message_loop(self) -> None:
-        while True:
-            try:
-                msg = self.receive(timeout=0.05)
-            except queue.Empty:
-                continue
-            self._handle_message(msg)
-
-
-def _write_chain(chain: List[Dict[str, Any]], path: str) -> None:
-    with open(path, "w", encoding="utf-8") as fh:
-        for block in chain:
-            blk = dict(block)
-            blk.pop("height", None)
-            fh.write(json.dumps(blk) + "\n")
-
-
-def recover_from_chain(chain: List[Dict[str, Any]], events_dir: str) -> tuple[Dict[str, Dict[str, Any]], Dict[str, float]]:
-    events: Dict[str, Dict[str, Any]] = {}
-    balances: Dict[str, float] = {}
-    path = Path(events_dir)
-    for block in chain:
-        ids = block.get("event_ids") or []
-        if isinstance(ids, str):
-            ids = [ids]
-        for evt_id in ids:
-            evt_file = path / f"{evt_id}.json"
-            if not evt_file.exists():
-                continue
-            try:
-                event = event_manager.load_event(str(evt_file))
-            except Exception:
-                continue
-            events[evt_id] = event
-            apply_mining_results(event, balances)
-            for acct, amt in event.get("payouts", {}).items():
-                balances[acct] = balances.get(acct, 0.0) + amt
-    return events, balances
-
-    # ------------------------------------------------------------------
-    # Fork handling helpers
-
     def _track_fork(self, block: Dict[str, Any]) -> None:
         if self.fork_chain is None:
-            # attempt to anchor fork on known parent in main chain
             parent_id = block.get("parent_id")
             idx = next((i for i, b in enumerate(self.blockchain) if b["block_id"] == parent_id), None)
             if idx is None:
@@ -389,3 +251,4 @@ def recover_from_chain(chain: List[Dict[str, Any]], events_dir: str) -> tuple[Di
         self.events, self.balances = recover_from_chain(chain, str(self.events_dir))
         self.save_state()
 
+    # Add other methods like create_event, mine_event, _handle_message, etc., as implemented
