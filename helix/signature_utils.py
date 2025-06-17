@@ -30,6 +30,14 @@ def sign_data(data: bytes, private_key: str) -> str:
     return base64.b64encode(signed.signature).decode("ascii")
 
 
+def sign_statement(statement: str, private_key: bytes) -> str:
+    """Return a hex-encoded signature of ``statement`` using ``private_key``."""
+    encoded = statement.encode("utf-8")
+    signing_key = signing.SigningKey(private_key)
+    signed = signing_key.sign(encoded)
+    return signed.signature.hex()
+
+
 def verify_signature(data: bytes, signature: str, public_key: str) -> bool:
     """Verify that ``signature`` matches ``data`` for ``public_key``."""
     sig_bytes = base64.b64decode(signature)
@@ -69,6 +77,7 @@ def load_or_create_keys(filename: str) -> Tuple[str, str]:
 __all__ = [
     "generate_keypair",
     "sign_data",
+    "sign_statement",
     "verify_signature",
     "save_keys",
     "load_keys",
