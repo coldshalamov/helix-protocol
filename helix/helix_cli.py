@@ -90,7 +90,18 @@ def cmd_submit_and_mine(args: argparse.Namespace) -> None:
     event = event_manager.create_event(
         args.statement, microblock_size=args.block_size
     )
-    helix_node.mine_microblocks(event)
+    block_total = len(event["microblocks"])
+    for idx, block in enumerate(event["microblocks"], start=1):
+        print(f"Mining microblock {idx}/{block_total} ...")
+        seed = miner.find_seed(block)
+        if seed is None:
+            print(f"No seed found for block {idx - 1}")
+            continue
+        if not minihelix.verify_seed(seed, block):
+            print(f"Seed verification failed for block {idx - 1}")
+            continue
+        event_manager.accept_mined_seed(event, idx - 1, [seed])
+
     event_manager.save_event(event, str(EVENTS_DIR))
     if not event.get("is_closed"):
         print("Event could not be fully mined")
@@ -99,10 +110,9 @@ def cmd_submit_and_mine(args: argparse.Namespace) -> None:
     event_manager.finalize_event(event)
     event_manager.save_event(event, str(EVENTS_DIR))
     chain = load_chain("blockchain.jsonl")
-    block_id = chain[-1]["block_id"] if chain else "N/A"
-    print(f"Event hash: {event['header']['statement_id']}")
-    print(f"Block ID: {block_id}")
-    print(f"Chain length: {len(chain)}")
+    evt_hash = event["header"]["statement_id"]
+    print(f"Event hash: {evt_hash}")
+    print(json.dumps(chain, indent=2))
 
 
 def cmd_mine_event(args: argparse.Namespace) -> None:
