@@ -110,25 +110,24 @@ def cmd_import_wallet(args: argparse.Namespace) -> None:
 
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
-    total_hlx = get_total_supply(str(events_dir))
-    mined_events = 0
-    total_reward = 0.0
+
+    minted = 0.0
+    burned = 0.0
 
     if events_dir.exists():
         for path in events_dir.glob("*.json"):
             event = event_manager.load_event(str(path))
             rewards = event.get("rewards", [])
             refunds = event.get("refunds", [])
-            reward = sum(rewards) - sum(refunds)
-            if event.get("is_closed"):
-                mined_events += 1
-                total_reward += reward
+            minted += sum(rewards) - sum(refunds)
+            burned += float(event.get("header", {}).get("gas_fee", 0))
 
-    avg_reward = total_reward / mined_events if mined_events else 0.0
+    supply = minted - burned
 
-    print(f"Total HLX Supply: {total_hlx:.4f}")
-    print(f"Total Mined Events: {mined_events}")
-    print(f"Average Reward/Event: {avg_reward:.4f}")
+    print(f"Total HLX Supply: {supply:.4f}")
+    print(f"Burned from Gas: {burned:.4f}")
+    print(f"HLX Minted via Compression: {minted:.4f}")
+    print("Token Velocity: N/A")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
