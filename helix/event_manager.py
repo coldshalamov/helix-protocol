@@ -137,6 +137,29 @@ def verify_seed_chain(seed_chain: List[bytes] | bytes, block: bytes) -> bool:
     current = G(current, N)
     return current == block
 
+
+def verify_statement(event: Dict[str, Any]) -> bool:
+    """Return ``True`` if the event's mined data is internally consistent."""
+
+    blocks = event.get("microblocks", [])
+    seeds = event.get("seeds", [])
+
+    if len(blocks) != len(seeds) or any(s is None for s in seeds):
+        return False
+
+    for block, chain in zip(blocks, seeds):
+        if not verify_seed_chain(chain, block):
+            return False
+
+    root, _tree = build_merkle_tree(blocks)
+    hdr_root = event.get("header", {}).get("merkle_root")
+    if isinstance(hdr_root, str):
+        hdr_root = bytes.fromhex(hdr_root)
+    if hdr_root != root:
+        return False
+
+    return True
+
 def create_event(
     statement: str,
     microblock_size: int = DEFAULT_MICROBLOCK_SIZE,
@@ -199,6 +222,15 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
     if all(event["mined_status"]):
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
+
+
+def mint_uncompressed_seeds(event: Dict[str, Any]) -> None:
+    """Mark all microblocks as mined using the blocks themselves as seeds."""
+    microblocks = event.get("microblocks", [])
+    for idx, block in enumerate(microblocks):
+        event["seeds"][idx] = block
+        event["seed_depths"][idx] = 1
+        mark_mined(event, idx)
 
 def finalize_event(
     event: Dict[str, Any], *, node_id: Optional[str] = None, chain_file: str = "blockchain.jsonl",
@@ -413,6 +445,18 @@ def accept_mined_seed(
         print(f"Replaced seed at index {index}: length {len(old_seed)} depth {old_depth} -> length {len(seed)} depth {depth}")
 
     return refund
+
+
+def mint_uncompressed_seeds(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark each microblock as mined using its raw bytes as the seed."""
+
+    blocks = event.get("microblocks", [])
+    event.setdefault("mined", [False] * len(blocks))
+    for i, block in enumerate(blocks):
+        accept_mined_seed(event, i, [block])
+        event["mined"][i] = True
+
+    return event
 
 def save_event(event: Dict[str, Any], directory: str) -> str:
     path = Path(directory)
