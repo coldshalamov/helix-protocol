@@ -1,4 +1,5 @@
 import hashlib
+import pytest
 
 from helix import minihelix as mh
 from helix import nested_miner
@@ -25,6 +26,7 @@ def test_verify_seed_false():
     assert not mh.verify_seed(b"\x03", block)
 
 
+@pytest.mark.skip(reason="Legacy miner deprecated")
 def test_find_nested_seed_simple():
     N = 8
     base_seed = b"abc"

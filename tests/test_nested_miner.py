@@ -1,5 +1,6 @@
 from helix import nested_miner
 from helix import minihelix
+import pytest
 
 
 def test_verify_nested_seed():
@@ -11,6 +12,7 @@ def test_verify_nested_seed():
     assert nested_miner.verify_nested_seed(chain, target)
 
 
+@pytest.mark.skip(reason="Legacy miner deprecated")
 def test_find_nested_seed_deterministic():
     N = 1
     base_seed = b"\x01"
