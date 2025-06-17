@@ -38,6 +38,9 @@ class GossipMessageType:
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
     FINALIZED_BLOCK = "FINALIZED_BLOCK"
+    CHAIN_TIP = "CHAIN_TIP"
+    CHAIN_REQUEST = "CHAIN_REQUEST"
+    CHAIN_RESPONSE = "CHAIN_RESPONSE"
 
 
 def simulate_mining(index: int) -> None:
@@ -302,6 +305,44 @@ class HelixNode(GossipNode):
             block = message.get("block")
             if block and self.apply_block(block):
                 self.forward_message(message)
+        elif mtype == GossipMessageType.CHAIN_TIP:
+            height = message.get("height")
+            block_id = message.get("block_id")
+            sender = message.get("sender")
+            if block_id and isinstance(height, int) and sender:
+                if height > len(self.blockchain):
+                    req = {
+                        "type": GossipMessageType.CHAIN_REQUEST,
+                        "sender": self.node_id,
+                        "target": sender,
+                    }
+                    self.send_message(req)
+        elif mtype == GossipMessageType.CHAIN_REQUEST:
+            target = message.get("target")
+            if target == self.node_id:
+                chain = bc.load_chain(str(self.chain_file))
+                self.send_message(
+                    {
+                        "type": GossipMessageType.CHAIN_RESPONSE,
+                        "sender": self.node_id,
+                        "chain": chain,
+                        "target": message.get("sender"),
+                    }
+                )
+        elif mtype == GossipMessageType.CHAIN_RESPONSE:
+            target = message.get("target")
+            chain = message.get("chain")
+            if target == self.node_id and isinstance(chain, list):
+                if bc.validate_chain(chain):
+                    local = bc.load_chain(str(self.chain_file))
+                    new_chain = blockchain.resolve_fork(
+                        local, chain, events_dir=str(self.events_dir)
+                    )
+                    if new_chain != local:
+                        with open(self.chain_file, "w", encoding="utf-8") as fh:
+                            for blk in new_chain:
+                                fh.write(json.dumps(blk, separators=(",", ":")) + "\n")
+                        self.blockchain = new_chain
 
     def _message_loop(self) -> None:
         while True:
@@ -310,4 +351,28 @@ class HelixNode(GossipNode):
             except queue.Empty:
                 continue
             self._handle_message(msg)
+
+    # ------------------------------------------------------------------
+    # Chain synchronization
+
+    def start_sync_loop(self) -> None:
+        """Periodically broadcast chain tip and reconcile incoming chains."""
+
+        def _sync_loop() -> None:
+            while True:
+                chain = bc.load_chain(str(self.chain_file))
+                last = chain[-1] if chain else None
+                block_id = last.get("block_id") if last else GENESIS_HASH
+                height = len(chain)
+                self.send_message(
+                    {
+                        "type": GossipMessageType.CHAIN_TIP,
+                        "sender": self.node_id,
+                        "block_id": block_id,
+                        "height": height,
+                    }
+                )
+                time.sleep(5)
+
+        threading.Thread(target=_sync_loop, daemon=True).start()
 
