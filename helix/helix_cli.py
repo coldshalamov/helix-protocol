@@ -148,6 +148,11 @@ def cmd_import_wallet(args: argparse.Namespace) -> None:
     balances[pub] = balance
     save_balances(balances, str(args.balances))
 
+def cmd_show_balance(args: argparse.Namespace) -> None:
+    pub, _ = signature_utils.load_keys(args.wallet)
+    balances = load_balances(str(args.balances))
+    print(balances.get(pub, 0))
+
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
 
@@ -200,9 +205,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--data-dir", default="data", help="Data directory")
     p_stats.set_defaults(func=cmd_token_stats)
 
+<<<<<<< codex/add-show-balance-subcommand
+    p_balance = sub.add_parser("show-balance", help="Show wallet HLX balance")
+    p_balance.add_argument("--wallet", required=True, help="Wallet file")
+    p_balance.add_argument("--balances", required=True, help="Balances file")
+    p_balance.set_defaults(func=cmd_show_balance)
+=======
     p_chain = sub.add_parser("view-chain", help="Display blockchain summary")
     p_chain.add_argument("--data-dir", default="data", help="Data directory")
     p_chain.set_defaults(func=cmd_view_chain)
+>>>>>>> main
 
     return parser
 
@@ -219,5 +231,9 @@ __all__ = [
     "cmd_view_peers",
     "cmd_export_wallet",
     "cmd_import_wallet",
+<<<<<<< codex/add-show-balance-subcommand
+    "cmd_show_balance",
+=======
     "cmd_view_chain",
+>>>>>>> main
 ]
