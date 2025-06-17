@@ -423,6 +423,18 @@ def accept_mined_seed(
 
     return refund
 
+
+def mint_uncompressed_seeds(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark each microblock as mined using its raw bytes as the seed."""
+
+    blocks = event.get("microblocks", [])
+    event.setdefault("mined", [False] * len(blocks))
+    for i, block in enumerate(blocks):
+        accept_mined_seed(event, i, [block])
+        event["mined"][i] = True
+
+    return event
+
 def save_event(event: Dict[str, Any], directory: str) -> str:
     path = Path(directory)
     path.mkdir(parents=True, exist_ok=True)
