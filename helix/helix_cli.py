@@ -1,5 +1,6 @@
 import argparse
 import json
+import base64
 from pathlib import Path
 
 from . import event_manager
@@ -7,7 +8,7 @@ from . import minihelix
 from . import miner
 from . import signature_utils
 from . import betting_interface
-from .ledger import load_balances, get_total_supply, compression_stats
+from .ledger import load_balances, save_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
 from .blockchain import load_chain
 from . import helix_node
@@ -140,6 +141,32 @@ def cmd_show_balance(args: argparse.Namespace) -> None:
     pub, _ = signature_utils.load_keys(args.wallet)
     balances = load_balances(str(BALANCES_FILE))
     print(balances.get(pub, 0))
+
+
+def cmd_export_wallet(args: argparse.Namespace) -> None:
+    """Export wallet keys and balance as base64 JSON."""
+    pub, priv = signature_utils.load_keys(args.wallet)
+    balances = load_balances(str(args.balances))
+    data = {
+        "public_key": pub,
+        "private_key": priv,
+        "balance": balances.get(pub, 0),
+    }
+    encoded = base64.b64encode(json.dumps(data).encode("utf-8")).decode("ascii")
+    print(encoded)
+
+
+def cmd_import_wallet(args: argparse.Namespace) -> None:
+    """Import wallet keys and balance from base64 JSON string."""
+    raw = base64.b64decode(args.data)
+    info = json.loads(raw.decode("utf-8"))
+    pub = info["public_key"]
+    priv = info["private_key"]
+    balance = info.get("balance", 0)
+    signature_utils.save_keys(args.wallet, pub, priv)
+    balances = load_balances(str(args.balances))
+    balances[pub] = balance
+    save_balances(balances, str(args.balances))
 
 
 def cmd_place_bet(args: argparse.Namespace) -> None:
@@ -383,6 +410,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_balance.set_defaults(func=cmd_show_balance)
 
+    p_export = sub.add_parser(
+        "export-wallet",
+        help="Export wallet keys and balance",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_export.add_argument("--wallet", required=True, metavar="KEYFILE", help="Wallet file")
+    p_export.add_argument(
+        "--balances",
+        default=str(BALANCES_FILE),
+        metavar="FILE",
+        help="Balances JSON file",
+    )
+    p_export.set_defaults(func=cmd_export_wallet)
+
+    p_import = sub.add_parser(
+        "import-wallet",
+        help="Import wallet keys and balance",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_import.add_argument("data", help="Base64 wallet backup")
+    p_import.add_argument("--wallet", required=True, metavar="KEYFILE", help="Wallet file")
+    p_import.add_argument(
+        "--balances",
+        default=str(BALANCES_FILE),
+        metavar="FILE",
+        help="Balances JSON file",
+    )
+    p_import.set_defaults(func=cmd_import_wallet)
+
     p_bet = sub.add_parser(
         "place-bet",
         help="Stake HLX on the outcome of an event",
@@ -493,4 +549,6 @@ __all__ = [
     "initialize_genesis_block",
     "cmd_token_stats",
     "cmd_submit_and_mine",
+    "cmd_export_wallet",
+    "cmd_import_wallet",
 ]
