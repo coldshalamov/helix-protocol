@@ -43,7 +43,18 @@ def main() -> None:
 
         seed_len = result.encoded[1]
         ratio = microblock_size / seed_len if seed_len else 0
-        print(f"Microblock {idx}: depth={result.depth}, compression={ratio:.2f}x")
+        print(
+            f"Microblock {idx}: depth={result.depth}, compression={ratio:.2f}x"
+        )
+
+        # verify the mined result by reassembling the chain
+        chain = nested_miner.decode_chain(result.encoded, len(block))
+        current = chain[0]
+        for step in chain[1:]:
+            current = nested_miner.G(current, len(block))
+        current = nested_miner.G(current, len(block))
+        if current != block:
+            print(f"WARNING: verification failed for microblock {idx}")
 
     # 7. Save event to disk
     events_dir = Path("data/events")
