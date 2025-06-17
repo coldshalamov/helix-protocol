@@ -1,10 +1,13 @@
 import argparse
 import json
+import os
+import time
 from pathlib import Path
 
 from . import event_manager
 from . import minihelix
 from . import miner
+from . import nested_miner
 from . import signature_utils
 from . import betting_interface
 from .ledger import load_balances, get_total_supply, compression_stats
@@ -284,6 +287,45 @@ def cmd_token_stats(args: argparse.Namespace) -> None:
     print(f"Average Reward/Event: {avg_reward:.4f}")
 
 
+def cmd_mine_benchmark(args: argparse.Namespace) -> None:
+    """Benchmark mining a random microblock."""
+    size = event_manager.DEFAULT_MICROBLOCK_SIZE
+    block = os.urandom(size)
+
+    calls = 0
+    orig_mh_G = minihelix.G
+    orig_nm_G = nested_miner.G
+
+    def counting_G(seed: bytes, N: int = size) -> bytes:
+        nonlocal calls
+        calls += 1
+        return orig_mh_G(seed, N)
+
+    minihelix.G = counting_G
+    nested_miner.G = counting_G
+    start = time.perf_counter()
+    try:
+        result = nested_miner.hybrid_mine(block, max_depth=args.depth)
+    finally:
+        minihelix.G = orig_mh_G
+        nested_miner.G = orig_nm_G
+    elapsed = time.perf_counter() - start
+
+    if result is None:
+        print(f"No seed found (G() calls={calls}, time={elapsed:.2f}s)")
+        return
+
+    seed, depth = result
+    ratio = (len(block) / len(seed)) if len(seed) < len(block) else 1.0
+    print(f"Time: {elapsed:.2f}s")
+    print(f"G() calls: {calls}")
+    if len(seed) < len(block):
+        print(f"Compression ratio: {ratio:.2f}x")
+    else:
+        print("Compression ratio: 1.00x")
+    print(f"Seed length: {len(seed)} depth={depth}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="helix",
@@ -437,6 +479,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_stats.set_defaults(func=cmd_token_stats)
 
+    p_bench = sub.add_parser(
+        "mine-benchmark",
+        help="Benchmark mining a random microblock",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_bench.add_argument(
+        "--depth",
+        type=int,
+        default=4,
+        metavar="N",
+        help="Maximum nested mining depth",
+    )
+    p_bench.set_defaults(func=cmd_mine_benchmark)
+
     p_reasm = sub.add_parser(
         "reassemble-statement",
         help="Verify seeds and output the full statement",
@@ -492,5 +548,6 @@ __all__ = [
     "cmd_init",
     "initialize_genesis_block",
     "cmd_token_stats",
+    "cmd_mine_benchmark",
     "cmd_submit_and_mine",
 ]
