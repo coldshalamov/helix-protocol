@@ -46,6 +46,12 @@ def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
     return chain
 
 
+def decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
+    """Public wrapper around :func:`_decode_chain`."""
+
+    return _decode_chain(encoded, block_size)
+
+
 def decode_header(header: int) -> tuple[int, int]:
     """Decode ``header`` byte into ``(depth, seed_len)``."""
     depth = header >> 4
