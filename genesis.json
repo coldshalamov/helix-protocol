@@ -1,26 +1,8 @@
 {
   "header": {
-    "statement_id": "4e17811011ec217ac84a9e037a82758a7de318342886a88a37ebabf90f52af73",
-    "original_length": 13,
-    "microblock_size": 8,
-    "block_count": 2
-  },
-  "statement": "Genesis block",
-  "microblocks": [
-    "47656e6573697320",
-    "626c6f636b000000"
-  ],
-  "mined_status": [
-    false,
-    false
-  ],
-  "seeds": [
-    null,
-    null
-  ],
-  "is_closed": false,
-  "bets": {
-    "YES": [],
-    "NO": []
-  }
-}
+    "statement_id": "f7c3745c9544aa6f82c6b46cf3365eb4b25505517de17a6c7681de110ba85fca",
+    "original_length": 43,
+    "microblock_size": 3,
+    "block_count": 15,
+    "parent_id": "f2a521ab40a1211a0a034aac27a55186ccf6163c715d7deafb55790f0e37b8c3",
+    "merkle_root": 

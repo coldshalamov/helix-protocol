@@ -4,7 +4,8 @@
     "original_length": 43,
     "microblock_size": 3,
     "block_count": 15,
-    "parent_id": "a6dc431bd631e98973a6a15baa8a27a21b2f60ef9193fc9954f4141eda3d40bc"
+    "parent_id": "f2a521ab40a1211a0a034aac27a55186ccf6163c715d7deafb55790f0e37b8c3",
+    "merkle_root": "51cb401180a91633163dc0c1fc12f32894e8e5e990d3ca9c63986a459b801e5e"
   },
   "statement": "Helix is to data what logic is to language.",
   "microblocks": [
@@ -24,6 +25,48 @@
     "616765",
     "2e0000"
   ],
+  "merkle_tree": [
+    [
+      "b789c24dcdb68c4437b04c186bf239a7207e7573fb1b22a749fe1a7b8d96d292",
+      "0dd940ed0bdd29b32c8884a3cb6392b4b75c38aabf225b85cc9449de0408d3d5",
+      "523bdb19151aebc2998bf24daecc767a245f7746559137ae875da7fd8b6a7f70",
+      "4b00b1b86bfdb5b29032e1b1fe199a2b85fedc2c2a9bf1345a9880080c7c7a85",
+      "947d5a35ff2fe522fda5b431af955e3b27955ebc18c9e3684b07b51ae112461f",
+      "b5dc5cf466369e86b07ddb1c2b778121751de89372dd240faf5b22f26d94c7da",
+      "18e1dd392168f601d0e568612a2bf40e6555c033e033b580ae6627d8aeee1150",
+      "7afe8506bd02e7d722af45fa8f45c1a099362d7e6b40b57ffb509c8a69c6a64c",
+      "0d4ba031e63f23c04d0d9725f9e0b2199b5d22c00625795f335babb4199a0092",
+      "a8bdfde11f2443a17f53ad0c9eb033c86a916c4575fe9cbce4c6a0d5af432aed",
+      "84d0f765cd51d373f02dd72c742454b26807b93f5a2655ba1c8d905236e43df0",
+      "028f3e7cf0eff45ff8fafa7cd008236df50b7927a66c9084be9f2f63efcc1cfa",
+      "a9c64a575d7e54ef8051d57c87e9e5dda00b0205767581918d01e97d81581298",
+      "013f54400c82da08037759ada907a8b864e97de81c088a182062c4b5622fd2ab",
+      "b732ffe27ec86a8c0a6eb3f58498020aec50f69eafb6b86eedcce690a4fa88ca"
+    ],
+    [
+      "54727a3b09986560e64c34fe8eaec8f8d91b69cc71890da3429b92ec0f31ed29",
+      "dbdaf4bc3342a0a6d039e8842a3294ac97b6d14e26c6421e84820e8e6e3aa4a5",
+      "ea986c723e14712e7056a377358533615541a34af928af2ea0a790d2f3f625e1",
+      "61cdb466e405e314ef0cb8fd8a329443ae53281d31cc216955529b8a5fd55024",
+      "091ac17aba19b6e8f8475fef30fc51eb03db3f16dd066aa09caef9f4196b049e",
+      "7f0733c080155472c6f9bc74f24e90aa0c9b6820163df1d74eb458e3d27c7136",
+      "5a860c1f971e0a2740d48cf00917d69e3ca0e4974d3ed53447504fc85832ab66",
+      "caa9dda989c35411e85b6f120e487fa72b3b7db1d43643429be66f3c117f56a4"
+    ],
+    [
+      "daf855b4db1bf74f66f58ecc328b8cd5ddf917152e6bab40321f52df1f883854",
+      "d60bdc82a1e757a55e8f3f419d56363d6d7166d111c306a8bd2c94df07fb83f8",
+      "3293ced6511fa331b4d326e8bf7648a80d48a285e9bfb36c80514366185fbb50",
+      "aaaada77abf8bfcf8464880ae8de810628f573b01a4046f0c0c1a0ebd22bce7e"
+    ],
+    [
+      "d4d814223769c0bc244da9003f63a9b24b327fc4476e4ba885090787e79cb5e7",
+      "1da3039c5e3927e63472d6c1346c39fb331218fef16e1bc943bf631f7887aa75"
+    ],
+    [
+      "51cb401180a91633163dc0c1fc12f32894e8e5e990d3ca9c63986a459b801e5e"
+    ]
+  ],
   "mined_status": [
     false,
     false,
@@ -35,7 +78,7 @@
     false,
     false,
     false,
-    true,
+    false,
     false,
     false,
     false,
@@ -52,7 +95,7 @@
     null,
     null,
     null,
-    "aa7d8c",
+    null,
     null,
     null,
     null,
@@ -69,7 +112,7 @@
     0,
     0,
     0,
-    3,
+    0,
     0,
     0,
     0,
@@ -86,7 +129,7 @@
     0,
     0,
     0,
-    2,
+    0,
     0,
     0,
     0,
@@ -103,7 +146,7 @@
     0.0,
     0.0,
     0.0,
-    0.3333333333333333,
+    0.0,
     0.0,
     0.0,
     0.0,
@@ -130,5 +173,7 @@
   "bets": {
     "YES": [],
     "NO": []
-  }
+  },
+  "originator_pub": "5MhCu1i37iFZivv14SRDRxmzBxT4jM3/dq0mhMOop5c=",
+  "originator_sig": "ixyq+XVbN4Au5iejJMzpevMZaXFYijiRqtfSqBcfUN1bNQRlm6Er7tli5tgDz2ycMUb3i0H1XKyem5xsG3VeAw=="
 }
