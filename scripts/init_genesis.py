@@ -14,15 +14,6 @@ from helix import (
 CHECKPOINT_FILE = Path("start_index.txt")
 
 
-def encode_chain(chain: list[bytes]) -> bytes:
-    """Manually encode a chain like nested_miner.encode_chain used to."""
-    if not chain:
-        return b""
-    depth = len(chain)
-    seed_len = len(chain[0])
-    return bytes([depth, seed_len]) + b"".join(chain)
-
-
 def main() -> None:
     # 1. Load or create Ed25519 wallet keys
     pub, priv = signature_utils.load_or_create_keys("wallet.json")
@@ -77,10 +68,8 @@ def main() -> None:
             print(f"Microblock {idx}: no seed found")
             continue
 
-        encoded = encode_chain(chain)
-        event["seeds"][idx] = encoded
-        event["seed_depths"][idx] = len(chain)
-        event_manager.mark_mined(event, idx)
+        # Accept the mined chain into the event using built-in function
+        event_manager.accept_mined_seed(event, idx, chain)
         event_manager.save_event(event, str(events_dir))
 
         try:
