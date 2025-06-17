@@ -201,7 +201,8 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         print(f"Event {event['header']['statement_id']} is now closed.")
 
 def finalize_event(
-    event: Dict[str, Any], *, node_id: Optional[str] = None, chain_file: str = "blockchain.jsonl"
+    event: Dict[str, Any], *, node_id: Optional[str] = None, chain_file: str = "blockchain.jsonl",
+    balances_file: Optional[str] = None, _bc: Any | None = None
 ) -> Dict[str, float]:
     """Resolve bets, calculate rewards and append a finalized block.
 
@@ -213,6 +214,10 @@ def finalize_event(
         Identifier (usually public key) of the miner finalizing the event.
     chain_file:
         Location of the blockchain file. Defaults to ``blockchain.jsonl``.
+    balances_file:
+        Optional path to a balances ledger updated with payouts.
+    _bc:
+        Optional blockchain module override used for testing.
     """
     if not event.get("is_closed"):
         raise ValueError("event is not fully mined")
@@ -327,6 +332,20 @@ def finalize_event(
         path = Path(chain_file)
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+
+    if balances_file is not None:
+        from . import ledger
+
+        balances = ledger.load_balances(balances_file)
+        ledger.apply_mining_results(event, balances)
+        for acct, amount in payouts.items():
+            balances[acct] = balances.get(acct, 0.0) + amount
+        ledger.save_balances(balances, balances_file)
+
+        if node_id:
+            miner_reward_amt = payouts.get(node_id, 0.0)
+            ledger.update_total_supply(miner_reward_amt)
+
     return payouts
 
 def accept_mined_seed(

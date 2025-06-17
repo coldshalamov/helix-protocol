@@ -251,4 +251,66 @@ class HelixNode(GossipNode):
         self.events, self.balances = recover_from_chain(chain, str(self.events_dir))
         self.save_state()
 
-    # Add other methods like create_event, mine_event, _handle_message, etc., as implemented
+    def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
+        payouts = event_manager.finalize_event(
+            event,
+            node_id=self.node_id,
+            chain_file=str(self.chain_file),
+            balances_file=str(self.balances_file),
+        )
+        self.balances = load_balances(str(self.balances_file))
+        self.save_state()
+        self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
+        return payouts
+
+    def _handle_message(self, message: Dict[str, Any]) -> None:
+        mtype = message.get("type")
+        if mtype == GossipMessageType.NEW_STATEMENT:
+            event = message.get("event")
+            if event and verify_statement_id(event):
+                evt_id = event["header"]["statement_id"]
+                self.events[evt_id] = event
+                self.save_state()
+                self.forward_message(message)
+        elif mtype == GossipMessageType.MINED_MICROBLOCK:
+            evt_id = message.get("event_id")
+            idx = message.get("index")
+            seed_hex = message.get("seed")
+            pub = message.get("pubkey")
+            sig = message.get("signature")
+            if evt_id in self.events and idx is not None and seed_hex:
+                if pub and sig:
+                    payload = f"{evt_id}:{idx}:{seed_hex}".encode("utf-8")
+                    if not signature_utils.verify_signature(payload, sig, pub):
+                        return
+                try:
+                    seed = bytes.fromhex(seed_hex)
+                except ValueError:
+                    return
+                event = self.events[evt_id]
+                event_manager.accept_mined_seed(event, idx, [seed], miner=pub)
+                self.save_state()
+                self.forward_message(message)
+        elif mtype == GossipMessageType.FINALIZED:
+            event = message.get("event")
+            if event:
+                evt_id = event["header"]["statement_id"]
+                self.events[evt_id] = event
+                update_total_supply(event.get("miner_reward", 0.0))
+                apply_mining_results(event, self.balances)
+                for acct, amt in event.get("payouts", {}).items():
+                    self.balances[acct] = self.balances.get(acct, 0.0) + amt
+                self.save_state()
+                self.forward_message(message)
+        elif mtype == GossipMessageType.FINALIZED_BLOCK:
+            block = message.get("block")
+            if block and self.apply_block(block):
+                self.forward_message(message)
+
+    def _message_loop(self) -> None:
+        while True:
+            try:
+                msg = self.receive(timeout=0.05)
+            except queue.Empty:
+                continue
+            self._handle_message(msg)
