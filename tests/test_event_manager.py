@@ -47,3 +47,13 @@ def test_reject_oversize_seed():
     event = em.create_event("ab", microblock_size=2)
     with pytest.raises(ValueError):
         em.accept_mined_seed(event, 0, bytes([1, 7]) + b"toolong")
+
+
+def test_mint_uncompressed_seeds():
+    event = em.create_event("abcd", microblock_size=2)
+    em.mint_uncompressed_seeds(event)
+    assert all(event["mined"])
+    assert all(event["mined_status"])
+    for idx, block in enumerate(event["microblocks"]):
+        assert event["seeds"][idx] == [block]
+    assert event["is_closed"]
