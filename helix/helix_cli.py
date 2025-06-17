@@ -1,5 +1,6 @@
 import argparse
 import json
+import socket
 from pathlib import Path
 
 from . import event_manager
@@ -284,6 +285,38 @@ def cmd_token_stats(args: argparse.Namespace) -> None:
     print(f"Average Reward/Event: {avg_reward:.4f}")
 
 
+def cmd_view_peers(args: argparse.Namespace) -> None:
+    """Display peer information from ``args.peers_file``."""
+    path = Path(args.peers_file)
+    if not path.exists():
+        raise SystemExit(f"Peers file not found: {path}")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            peers = json.load(fh)
+    except Exception as exc:  # pragma: no cover - unexpected file error
+        raise SystemExit(f"Failed to read peers file: {exc}")
+
+    if not isinstance(peers, list):
+        raise SystemExit("Invalid peers file format")
+
+    for peer in peers:
+        if not isinstance(peer, dict):
+            continue
+        node_id = peer.get("node_id", "")
+        host = peer.get("host")
+        port = peer.get("port")
+        last_seen = float(peer.get("last_seen", 0.0))
+        reachable = False
+        if host and isinstance(port, int):
+            try:
+                with socket.create_connection((host, int(port)), timeout=1):
+                    pass
+                reachable = True
+            except Exception:
+                reachable = False
+        print(f"{node_id} last_seen={last_seen} reachable={reachable}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="helix",
@@ -437,6 +470,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_stats.set_defaults(func=cmd_token_stats)
 
+    p_peers = sub.add_parser(
+        "view-peers",
+        help="Show known peers from a peers file",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_peers.add_argument(
+        "--peers-file",
+        default="peers.json",
+        metavar="FILE",
+        help="Path to peers.json",
+    )
+    p_peers.set_defaults(func=cmd_view_peers)
+
     p_reasm = sub.add_parser(
         "reassemble-statement",
         help="Verify seeds and output the full statement",
@@ -492,5 +538,6 @@ __all__ = [
     "cmd_init",
     "initialize_genesis_block",
     "cmd_token_stats",
+    "cmd_view_peers",
     "cmd_submit_and_mine",
 ]
