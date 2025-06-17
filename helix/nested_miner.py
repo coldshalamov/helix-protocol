@@ -61,13 +61,17 @@ def find_nested_seed(
     attempts: int = 10_000,
     max_steps: int = 1000,
 ) -> NestedSeed | None:
-    """Deterministically search for a nested seed chain yielding ``target_block``.
+    """Recursively search for a nested seed chain yielding ``target_block``.
 
-    The returned value is a :class:`NestedSeed` instance containing the
-    encoded seed chain and the corresponding depth, or ``None`` if no
-    chain is found.
+    This performs a depth-first exploration of candidate seeds.  At each
+    level a finite range of seeds is enumerated.  If applying :func:`G`
+    to a seed produces the ``target_block`` the search stops.  Otherwise
+    the function recurses with the intermediate output as the new target.
+    The search depth is limited by ``max_depth`` and ``max_steps``.
     """
+
     def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
+        """Return the seed corresponding to ``nonce``."""
         for length in range(1, max_len + 1):
             count = 256 ** length
             if nonce < count:
@@ -76,37 +80,46 @@ def find_nested_seed(
         return None
 
     N = len(target_block)
-    nonce = start_nonce
+    max_depth = min(max_depth, max_steps)
+
     g_cache: dict[bytes, bytes] = {}
-    limit = min(max_depth, max_steps)
 
-    for _ in range(attempts):
-        seed = _seed_from_nonce(nonce, N)
-        if seed is None:
-            return None
-        nonce += 1
-        if not _seed_is_valid(seed, N):
-            continue
+    def dfs(target: bytes, depth: int, nonce: int) -> list[bytes] | None:
+        """Return a seed chain generating ``target`` or ``None``."""
 
-        chain = [seed]
-        current = seed
-        if current == target_block:
-            encoded = _encode_chain(chain)
-            chain_bytes = b"".join(chain)
-            return NestedSeed(chain_bytes, 1, encoded)
+        for attempt in range(attempts):
+            seed = _seed_from_nonce(nonce + attempt, N)
+            if seed is None:
+                break
+            if not _seed_is_valid(seed, N):
+                continue
 
-        for _ in range(limit):
-            nxt = g_cache.get(current)
+            nxt = g_cache.get(seed)
             if nxt is None:
-                nxt = G(current, N)
-                g_cache[current] = nxt
-            current = nxt
-            if current == target_block:
-                encoded = _encode_chain(chain)
-                chain_bytes = b"".join(chain)
-                return NestedSeed(chain_bytes, len(chain), encoded)
-            chain.append(current)
-    return None
+                nxt = G(seed, N)
+                g_cache[seed] = nxt
+
+            if nxt != target:
+                continue
+
+            if depth < max_depth:
+                sub = dfs(seed, depth + 1, 0)
+                if sub is not None:
+                    print(f"match depth={depth + len(sub)} size={len(seed)}")
+                    return sub + [seed]
+
+            print(f"match depth={depth} size={len(seed)}")
+            return [seed]
+        
+        return None
+
+    chain = dfs(target_block, 1, start_nonce)
+    if chain is None:
+        return None
+
+    encoded = _encode_chain(chain)
+    chain_bytes = b"".join(chain)
+    return NestedSeed(chain_bytes, len(chain), encoded)
 
 
 def verify_nested_seed(

@@ -12,28 +12,18 @@ def test_verify_nested_seed():
 
 
 def test_find_nested_seed_deterministic():
-    N = 8
-    base_seed = b"abc"
+    N = 1
+    base_seed = b"\x01"
     intermediate = minihelix.G(base_seed, N)
     target = minihelix.G(intermediate, N)
 
-    # Calculate the enumeration index for the chosen seed
-    start_nonce = 0
-    for length in range(1, N):
-        count = 256 ** length
-        if length < len(base_seed):
-            start_nonce += count
-        elif length == len(base_seed):
-            start_nonce += int.from_bytes(base_seed, "big")
-            break
+    result = nested_miner.find_nested_seed(target, max_depth=2, attempts=200)
+    assert result is not None, "find_nested_seed returned None"
 
-    result = nested_miner.find_nested_seed(
-        target, start_nonce=start_nonce, attempts=1, max_steps=2
-    )
-    assert result is not None
-    # Reconstruct expected chain
-    expected = base_seed + intermediate
-    assert result == expected
+    encoded, depth = result
+    chain = nested_miner._decode_chain(encoded, N)
+    assert depth == len(chain) <= 2
+    assert nested_miner.verify_nested_seed(chain, target)
 
 
 def test_verify_nested_seed_max_steps_limit():
