@@ -3,7 +3,7 @@ import blockchain as bc
 
 pytest.importorskip("nacl")
 
-from helix import helix_cli, event_manager, helix_node
+from helix import helix_cli, event_manager
 
 
 @pytest.fixture(autouse=True)
@@ -14,12 +14,8 @@ def _mock_verify(monkeypatch):
 def test_submit_and_mine(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
 
-    def fake_mine(ev, max_depth=4):
-        enc = bytes([1, 1]) + b"a"
-        event_manager.accept_mined_seed(ev, 0, enc)
-        return 1, 0.0
-
-    monkeypatch.setattr(helix_node, "mine_microblocks", fake_mine)
+    monkeypatch.setattr(helix_cli.miner, "find_seed", lambda b: b"a")
+    monkeypatch.setattr(helix_cli.minihelix, "verify_seed", lambda s, b: True)
 
     statement = "ab"
     helix_cli.main(["submit-and-mine", statement, "--block-size", "2"])
