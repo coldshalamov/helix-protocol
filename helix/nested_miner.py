@@ -26,6 +26,11 @@ def _encode_chain(chain: list[bytes]) -> bytes:
     return bytes([depth, seed_len]) + b"".join(chain)
 
 
+def encode_chain(chain: list[bytes]) -> bytes:
+    """Encode ``chain`` into the on-chain byte representation."""
+    return _encode_chain(chain)
+
+
 def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
     """Decode encoded seed chain into list of seeds for verification."""
     if not encoded:
@@ -39,6 +44,12 @@ def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
         start = i * block_size
         chain.append(rest[start : start + block_size])
     return chain
+
+
+def decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
+    """Public wrapper around :func:`_decode_chain`."""
+
+    return _decode_chain(encoded, block_size)
 
 
 def decode_header(header: int) -> tuple[int, int]:
