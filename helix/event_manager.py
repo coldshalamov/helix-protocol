@@ -200,6 +200,15 @@ def mark_mined(event: Dict[str, Any], index: int) -> None:
         event["is_closed"] = True
         print(f"Event {event['header']['statement_id']} is now closed.")
 
+
+def mint_uncompressed_seeds(event: Dict[str, Any]) -> None:
+    """Mark all microblocks as mined using the blocks themselves as seeds."""
+    microblocks = event.get("microblocks", [])
+    for idx, block in enumerate(microblocks):
+        event["seeds"][idx] = block
+        event["seed_depths"][idx] = 1
+        mark_mined(event, idx)
+
 def finalize_event(
     event: Dict[str, Any], *, node_id: Optional[str] = None, chain_file: str = "blockchain.jsonl",
     balances_file: Optional[str] = None, _bc: Any | None = None
