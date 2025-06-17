@@ -18,6 +18,9 @@ def test_cli_token_stats(tmp_path, capsys):
     capsys.readouterr()  # clear mark_mined output
 
     cli.main(["--data-dir", str(tmp_path), "token-stats"])
-    out = capsys.readouterr().out.strip()
+    out_lines = capsys.readouterr().out.strip().splitlines()
     expected = sum(event["rewards"]) - sum(event["refunds"])
-    assert f"Total HLX Issued: {expected:.4f}" in out
+    assert f"Total HLX Supply: {expected:.4f}" in out_lines[0]
+    assert "Burned from Gas: 0.0000" in out_lines[1]
+    assert f"HLX Minted via Compression: {expected:.4f}" in out_lines[2]
+    assert "Token Velocity: N/A" in out_lines[3]

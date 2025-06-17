@@ -105,9 +105,26 @@ def cmd_reassemble(args: argparse.Namespace) -> None:
 
 
 def cmd_token_stats(args: argparse.Namespace) -> None:
+    """Display aggregated token metrics."""
     events_dir = Path(args.data_dir) / "events"
-    total = get_total_supply(str(events_dir))
-    print(f"Total HLX Issued: {total:.4f}")
+
+    total_minted = 0.0
+    total_burned = 0.0
+
+    if events_dir.exists():
+        for path in events_dir.glob("*.json"):
+            event = event_manager.load_event(str(path))
+            rewards = event.get("rewards", [])
+            refunds = event.get("refunds", [])
+            total_minted += sum(rewards) - sum(refunds)
+            total_burned += float(event.get("header", {}).get("gas_fee", 0))
+
+    supply = total_minted - total_burned
+
+    print(f"Total HLX Supply: {supply:.4f}")
+    print(f"Burned from Gas: {total_burned:.4f}")
+    print(f"HLX Minted via Compression: {total_minted:.4f}")
+    print("Token Velocity: N/A")
 
 
 def cmd_view_chain(args: argparse.Namespace) -> None:
