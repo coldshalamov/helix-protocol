@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from helix import event_manager, signature_utils, nested_miner
+from helix import (
+    event_manager,
+    signature_utils,
+    nested_miner,
+    exhaustive_miner,
+)
 
 
 def main() -> None:
@@ -32,18 +37,21 @@ def main() -> None:
 
     # 6. Mine each microblock
     for idx, block in enumerate(event["microblocks"]):
-        result = nested_miner.find_nested_seed(block, max_depth=500)
-        if result is None:
+        chain = exhaustive_miner.exhaustive_mine(block, max_depth=500)
+        if chain is None:
             print(f"Microblock {idx}: no seed found")
             continue
 
-        event["seeds"][idx] = result.encoded
-        event["seed_depths"][idx] = result.depth
+        encoded = nested_miner.encode_chain(chain)
+        event["seeds"][idx] = encoded
+        event["seed_depths"][idx] = len(chain)
         event_manager.mark_mined(event, idx)
 
-        seed_len = result.encoded[1]
+        seed_len = len(chain[0]) if chain else 0
         ratio = microblock_size / seed_len if seed_len else 0
-        print(f"Microblock {idx}: depth={result.depth}, compression={ratio:.2f}x")
+        print(
+            f"Microblock {idx}: depth={len(chain)}, compression={ratio:.2f}x"
+        )
 
     # 7. Save event to disk
     events_dir = Path("data/events")
