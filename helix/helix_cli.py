@@ -108,6 +108,26 @@ def cmd_import_wallet(args: argparse.Namespace) -> None:
     balances[pub] = balance
     save_balances(balances, str(args.balances))
 
+
+def cmd_verify_statement(args: argparse.Namespace) -> None:
+    """Verify mined event integrity."""
+
+    path = Path(args.path)
+    if not path.exists():
+        raise SystemExit("Event file not found")
+
+    event = event_manager.load_event(str(path))
+    ok = event_manager.verify_statement(event)
+
+    statement = event_manager.reassemble_microblocks(event.get("microblocks", []))
+    digest = hashlib.sha256(statement.encode("utf-8")).hexdigest()
+    expected = event.get("header", {}).get("statement_id")
+
+    if ok and digest == expected:
+        print("Verification succeeded")
+    else:
+        print("Verification failed")
+
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
 
@@ -156,6 +176,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("--balances", required=True, help="Balances file")
     p_import.set_defaults(func=cmd_import_wallet)
 
+    p_verify = sub.add_parser("verify-statement", help="Verify a finalized statement")
+    p_verify.add_argument("path", help="Path to event JSON file")
+    p_verify.set_defaults(func=cmd_verify_statement)
+
     p_stats = sub.add_parser("token-stats", help="Display token supply stats")
     p_stats.add_argument("--data-dir", default="data", help="Data directory")
     p_stats.set_defaults(func=cmd_token_stats)
@@ -175,4 +199,5 @@ __all__ = [
     "cmd_view_peers",
     "cmd_export_wallet",
     "cmd_import_wallet",
+    "cmd_verify_statement",
 ]
