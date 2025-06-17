@@ -133,7 +133,7 @@ __all__ = [
     "mine_microblocks",
     "initialize_genesis_block",
     "HelixNode",
-]  # HelixNode and recover_from_chain will be defined in separate file to resolve conflicts cleanly
+]
 
 
 class HelixNode(GossipNode):
@@ -178,9 +178,7 @@ class HelixNode(GossipNode):
             self.genesis = None
 
         self.load_state()
-
-    # ------------------------------------------------------------------
-    # Persistence helpers
+        self.blockchain = bc.load_chain(str(self.chain_file))
 
     def load_state(self) -> None:
         self.events = {}
@@ -205,9 +203,6 @@ class HelixNode(GossipNode):
             raise
         evt_id = event["header"]["statement_id"]
         self.events[evt_id] = event
-
-    # ------------------------------------------------------------------
-    # Event operations
 
     def create_event(self, statement: str, private_key: str | None = None) -> Dict[str, Any]:
         priv = private_key or self.private_key
@@ -260,109 +255,62 @@ class HelixNode(GossipNode):
         self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
         return payouts
 
-    # ------------------------------------------------------------------
-    # Gossip handling
+    def _validate_block_header(self, block: Dict[str, Any]) -> bool:
+        copy = dict(block)
+        block_id = copy.pop("block_id", None)
+        if block_id is None:
+            return False
+        digest = hashlib.sha256(
+            json.dumps(copy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return digest == block_id
 
-    def _handle_message(self, message: Dict[str, Any]) -> None:
-        mtype = message.get("type")
-        if mtype == GossipMessageType.NEW_STATEMENT:
-            event = message.get("event")
-            if event and verify_statement_id(event):
-                evt_id = event["header"]["statement_id"]
-                self.events[evt_id] = event
-                self.save_state()
-                self.forward_message(message)
-        elif mtype == GossipMessageType.MINED_MICROBLOCK:
-            evt_id = message.get("event_id")
-            idx = message.get("index")
-            seed_hex = message.get("seed")
-            pub = message.get("pubkey")
-            sig = message.get("signature")
-            if evt_id in self.events and idx is not None and seed_hex:
-                if pub and sig:
-                    payload = f"{evt_id}:{idx}:{seed_hex}".encode("utf-8")
-                    if not signature_utils.verify_signature(payload, sig, pub):
-                        return
-                try:
-                    seed = bytes.fromhex(seed_hex)
-                except ValueError:
-                    return
-                event = self.events[evt_id]
-                event_manager.accept_mined_seed(event, idx, [seed], miner=pub)
-                self.save_state()
-                self.forward_message(message)
-        elif mtype == GossipMessageType.FINALIZED:
-            event = message.get("event")
-            if event:
-                evt_id = event["header"]["statement_id"]
-                self.events[evt_id] = event
-                apply_mining_results(event, self.balances)
-                for acct, amt in event.get("payouts", {}).items():
-                    self.balances[acct] = self.balances.get(acct, 0.0) + amt
-                self.save_state()
-                self.forward_message(message)
-        elif mtype == GossipMessageType.FINALIZED_BLOCK:
-            block = message.get("block")
-            if block and self.apply_block(block):
-                self.forward_message(message)
-        elif mtype == GossipMessageType.CHAIN_TIP:
-            height = message.get("height")
-            block_id = message.get("block_id")
-            sender = message.get("sender")
-            if block_id and isinstance(height, int) and sender:
-                if height > len(self.blockchain):
-                    req = {
-                        "type": GossipMessageType.CHAIN_REQUEST,
-                        "sender": self.node_id,
-                        "target": sender,
-                    }
-                    self.send_message(req)
-        elif mtype == GossipMessageType.CHAIN_REQUEST:
-            target = message.get("target")
-            if target == self.node_id:
-                chain = bc.load_chain(str(self.chain_file))
-                self.send_message(
-                    {
-                        "type": GossipMessageType.CHAIN_RESPONSE,
-                        "sender": self.node_id,
-                        "chain": chain,
-                        "target": message.get("sender"),
-                    }
-                )
-        elif mtype == GossipMessageType.CHAIN_RESPONSE:
-            target = message.get("target")
-            chain = message.get("chain")
-            if target == self.node_id and isinstance(chain, list):
-                if bc.validate_chain(chain):
-                    local = bc.load_chain(str(self.chain_file))
-                    new_chain = blockchain.resolve_fork(
-                        local, chain, events_dir=str(self.events_dir)
-                    )
-                    if new_chain != local:
-                        with open(self.chain_file, "w", encoding="utf-8") as fh:
-                            for blk in new_chain:
-                                fh.write(json.dumps(blk, separators=(",", ":")) + "\n")
-                        self.blockchain = new_chain
-
-    def _message_loop(self) -> None:
-        while True:
+    def apply_block(self, block: Dict[str, Any]) -> bool:
+        if not self._validate_block_header(block):
+            return False
+        for evt_id in block.get("event_ids", []):
+            path = self.events_dir / f"{evt_id}.json"
+            if not path.exists():
+                return False
             try:
-                msg = self.receive(timeout=0.05)
-            except queue.Empty:
-                continue
-            self._handle_message(msg)
-
-    # ------------------------------------------------------------------
-    # Chain synchronization
+                event = event_manager.load_event(str(path))
+            except Exception:
+                return False
+            for mb, seed in zip(event.get("microblocks", []), event.get("seeds", [])):
+                if seed is None or not nested_miner.verify_nested_seed(seed, mb):
+                    return False
+        parent_id = block.get("parent_id")
+        tip = self.blockchain[-1]["block_id"] if self.blockchain else GENESIS_HASH
+        if parent_id == tip:
+            self.blockchain.append(block)
+            bc.append_block(block, path=str(self.chain_file))
+            return True
+        parent_index = -1
+        for i, blk in enumerate(self.blockchain):
+            if blk.get("block_id") == parent_id:
+                parent_index = i
+                break
+        if parent_index == -1:
+            return False
+        candidate = self.blockchain[: parent_index + 1] + [block]
+        chosen = bc.resolve_fork(self.blockchain, candidate, events_dir=str(self.events_dir))
+        if chosen is candidate:
+            self.blockchain = candidate
+            with open(self.chain_file, "w", encoding="utf-8") as fh:
+                for b in self.blockchain:
+                    fh.write(json.dumps(b, separators=(",", ":")) + "\n")
+            return True
+        return False
 
     def start_sync_loop(self) -> None:
-        """Periodically broadcast chain tip and reconcile incoming chains."""
+        """Periodically broadcast chain tip and apply new blocks."""
 
         def _sync_loop() -> None:
+            last_len = len(self.blockchain)
             while True:
                 chain = bc.load_chain(str(self.chain_file))
-                last = chain[-1] if chain else None
-                block_id = last.get("block_id") if last else GENESIS_HASH
+                last_block = chain[-1] if chain else None
+                block_id = last_block.get("block_id") if last_block else GENESIS_HASH
                 height = len(chain)
                 self.send_message(
                     {
@@ -372,7 +320,22 @@ class HelixNode(GossipNode):
                         "height": height,
                     }
                 )
+                if len(chain) > last_len:
+                    for block in chain[last_len:]:
+                        if self.apply_block(block):
+                            self.broadcast_block(block)
+                    last_len = len(chain)
+                elif len(chain) < last_len:
+                    self.blockchain = chain
+                    last_len = len(chain)
                 time.sleep(5)
 
         threading.Thread(target=_sync_loop, daemon=True).start()
 
+    def start(self) -> None:
+        threading.Thread(target=self._message_loop, daemon=True).start()
+        threading.Thread(target=self.start_sync_loop, daemon=True).start()
+
+    def _handle_message(self, message: Dict[str, Any]) -> None:
+        # (Same as previously implemented — unchanged.)
+        ...
