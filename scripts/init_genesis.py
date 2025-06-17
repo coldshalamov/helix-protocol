@@ -8,11 +8,19 @@ from pathlib import Path
 from helix import (
     event_manager,
     signature_utils,
-    nested_miner,
     exhaustive_miner,
 )
 
 CHECKPOINT_FILE = Path("start_index.txt")
+
+
+def encode_chain(chain: list[bytes]) -> bytes:
+    """Manually encode a chain like nested_miner.encode_chain used to."""
+    if not chain:
+        return b""
+    depth = len(chain)
+    seed_len = len(chain[0])
+    return bytes([depth, seed_len]) + b"".join(chain)
 
 
 def main() -> None:
@@ -69,7 +77,7 @@ def main() -> None:
             print(f"Microblock {idx}: no seed found")
             continue
 
-        encoded = nested_miner.encode_chain(chain)
+        encoded = encode_chain(chain)
         event["seeds"][idx] = encoded
         event["seed_depths"][idx] = len(chain)
         event_manager.mark_mined(event, idx)
@@ -82,9 +90,7 @@ def main() -> None:
 
         seed_len = len(chain[0]) if chain else 0
         ratio = microblock_size / seed_len if seed_len else 0
-        print(
-            f"Microblock {idx}: depth={len(chain)}, compression={ratio:.2f}x"
-        )
+        print(f"Microblock {idx}: depth={len(chain)}, compression={ratio:.2f}x")
 
     # 8. Final save
     event_manager.save_event(event, str(events_dir))
