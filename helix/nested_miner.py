@@ -5,6 +5,11 @@ from __future__ import annotations
 from . import minihelix
 from .minihelix import G, mine_seed
 
+# Maximum supported depth when validating nested seed chains.  This
+# mirrors the limit enforced by :mod:`helix.exhaustive_miner` and
+# prevents extremely deep (and expensive) chains from being accepted.
+MAX_DEPTH = 500
+
 
 class NestedSeed(bytes):
     """Representation of a mined nested seed chain."""
@@ -26,6 +31,11 @@ def _encode_chain(chain: list[bytes]) -> bytes:
     return bytes([depth, seed_len]) + b"".join(chain)
 
 
+def encode_chain(chain: list[bytes]) -> bytes:
+    """Encode ``chain`` into the on-chain byte representation."""
+    return _encode_chain(chain)
+
+
 def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
     """Decode encoded seed chain into list of seeds for verification."""
     if not encoded:
@@ -39,6 +49,12 @@ def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
         start = i * block_size
         chain.append(rest[start : start + block_size])
     return chain
+
+
+def decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
+    """Public wrapper around :func:`_decode_chain`."""
+
+    return _decode_chain(encoded, block_size)
 
 
 def decode_header(header: int) -> tuple[int, int]:
@@ -127,8 +143,15 @@ def verify_nested_seed(
     target_block: bytes,
     *,
     max_steps: int = 1000,
+    max_depth: int = MAX_DEPTH,
 ) -> bool:
-    """Return True if ``seed_chain`` regenerates ``target_block``."""
+    """Return ``True`` if ``seed_chain`` regenerates ``target_block``.
+
+    The chain may be provided either as a list of seeds/microblocks or as
+    the encoded bytes returned by :func:`find_nested_seed`.  Validation is
+    bounded by ``max_depth`` and ``max_steps`` to mirror the main mining
+    logic.
+    """
     N = len(target_block)
 
     if isinstance(seed_chain, (bytes, bytearray)):
@@ -139,10 +162,12 @@ def verify_nested_seed(
         expected_len = 2 + seed_len + (depth - 1) * N
         if len(seed_chain) != expected_len:
             return False
+        if depth == 0 or depth > max_depth or depth - 1 > max_steps:
+            return False
 
         offset = 2
         seed = seed_chain[offset : offset + seed_len]
-        if not (0 < len(seed) <= N):
+        if not _seed_is_valid(seed, N):
             return False
         offset += seed_len
         current = seed
@@ -150,18 +175,26 @@ def verify_nested_seed(
             if step_num > max_steps:
                 return False
             current = G(current, N)
-            if current != seed_chain[offset : offset + N]:
+            next_block = seed_chain[offset : offset + N]
+            if len(next_block) != N or current != next_block:
                 return False
             offset += N
         current = G(current, N)
         return current == target_block
 
     # List version
-    if not seed_chain or not (0 < len(seed_chain[0]) <= N):
+    if not seed_chain:
         return False
-    if len(seed_chain) - 1 >= max_steps:
+    if len(seed_chain) > max_depth or len(seed_chain) - 1 > max_steps:
         return False
-    current = seed_chain[0]
+    seed = seed_chain[0]
+    if not _seed_is_valid(seed, N):
+        return False
+    for block in seed_chain[1:]:
+        if len(block) != N:
+            return False
+
+    current = seed
     for step_num, step in enumerate(seed_chain[1:], start=1):
         if step_num > max_steps:
             return False
