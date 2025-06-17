@@ -175,6 +175,8 @@ class HelixNode(GossipNode):
             self.genesis = None
 
         self.load_state()
+        # initialize blockchain from existing chain file
+        self.blockchain = bc.load_chain(str(self.chain_file))
 
     # ------------------------------------------------------------------
     # Persistence helpers
@@ -310,4 +312,86 @@ class HelixNode(GossipNode):
             except queue.Empty:
                 continue
             self._handle_message(msg)
+
+    # ------------------------------------------------------------------
+    # Blockchain synchronization
+
+    def _validate_block_header(self, block: Dict[str, Any]) -> bool:
+        """Return True if ``block`` has a valid hash."""
+        copy = dict(block)
+        block_id = copy.pop("block_id", None)
+        if block_id is None:
+            return False
+        digest = hashlib.sha256(
+            json.dumps(copy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return digest == block_id
+
+    def apply_block(self, block: Dict[str, Any]) -> bool:
+        """Validate ``block`` including nested seeds and handle forks."""
+
+        if not self._validate_block_header(block):
+            return False
+
+        # verify microblock seeds for referenced events
+        for evt_id in block.get("event_ids", []):
+            path = self.events_dir / f"{evt_id}.json"
+            if not path.exists():
+                return False
+            try:
+                event = event_manager.load_event(str(path))
+            except Exception:
+                return False
+            for mb, seed in zip(event.get("microblocks", []), event.get("seeds", [])):
+                if seed is None or not nested_miner.verify_nested_seed(seed, mb):
+                    return False
+
+        parent_id = block.get("parent_id")
+        tip = self.blockchain[-1]["block_id"] if self.blockchain else GENESIS_HASH
+
+        if parent_id == tip:
+            self.blockchain.append(block)
+            bc.append_block(block, path=str(self.chain_file))
+            return True
+
+        # potential fork
+        parent_index = -1
+        for i, blk in enumerate(self.blockchain):
+            if blk.get("block_id") == parent_id:
+                parent_index = i
+                break
+        if parent_index == -1:
+            return False
+        candidate = self.blockchain[: parent_index + 1] + [block]
+        chosen = bc.resolve_fork(self.blockchain, candidate, events_dir=str(self.events_dir))
+        if chosen is candidate:
+            self.blockchain = candidate
+            with open(self.chain_file, "w", encoding="utf-8") as fh:
+                for b in self.blockchain:
+                    fh.write(json.dumps(b, separators=(",", ":")) + "\n")
+            return True
+        return False
+
+    def start_sync_loop(self) -> None:
+        """Periodically broadcast newly finalized blocks."""
+
+        last_len = len(self.blockchain)
+        while True:
+            chain = bc.load_chain(str(self.chain_file))
+            if len(chain) > last_len:
+                for block in chain[last_len:]:
+                    if self.apply_block(block):
+                        self.broadcast_block(block)
+                last_len = len(chain)
+            elif len(chain) < last_len:
+                # local chain truncated or replaced; reload fully
+                self.blockchain = chain
+                last_len = len(chain)
+            time.sleep(0.5)
+
+    def start(self) -> None:
+        """Launch message and sync threads."""
+
+        threading.Thread(target=self._message_loop, daemon=True).start()
+        threading.Thread(target=self.start_sync_loop).start()
 
