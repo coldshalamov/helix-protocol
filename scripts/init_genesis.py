@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from helix import event_manager, signature_utils, exhaustive_miner
+from helix import (
+    event_manager,
+    signature_utils,
+    nested_miner,
+    exhaustive_miner,
+)
 
 CHECKPOINT_FILE = Path("start_index.txt")
 
@@ -23,6 +28,7 @@ def main() -> None:
     # 4. Sign the statement
     signature = signature_utils.sign_statement(statement, priv)
 
+    # 5. Prepare event file
     events_dir = Path("data/events")
     events_dir.mkdir(parents=True, exist_ok=True)
     statement_id = event_manager.sha256(statement.encode("utf-8"))
@@ -40,6 +46,7 @@ def main() -> None:
         event["originator_sig"] = signature
         event_manager.save_event(event, str(events_dir))
 
+    # 6. Read checkpoint index
     start_index = 0
     if CHECKPOINT_FILE.exists():
         try:
@@ -47,24 +54,24 @@ def main() -> None:
         except Exception:
             start_index = 0
 
-    # 6. Mine each microblock
+    # 7. Mine each microblock
     for idx, block in enumerate(event["microblocks"]):
         if event["seeds"][idx] is not None:
             continue
 
-        result = exhaustive_miner.exhaustive_mine(
+        chain = exhaustive_miner.exhaustive_mine(
             block,
             max_depth=500,
             start_index=start_index,
             checkpoint_path=str(CHECKPOINT_FILE),
         )
-        if result is None:
+        if chain is None:
             print(f"Microblock {idx}: no seed found")
             continue
 
-        encoded = bytes([len(result), len(result[0])]) + b"".join(result)
+        encoded = nested_miner.encode_chain(chain)
         event["seeds"][idx] = encoded
-        event["seed_depths"][idx] = len(result)
+        event["seed_depths"][idx] = len(chain)
         event_manager.mark_mined(event, idx)
         event_manager.save_event(event, str(events_dir))
 
@@ -73,16 +80,16 @@ def main() -> None:
         except Exception:
             start_index = 0
 
-        seed_len = len(result[0])
+        seed_len = len(chain[0]) if chain else 0
         ratio = microblock_size / seed_len if seed_len else 0
         print(
-            f"Microblock {idx}: depth={len(result)}, compression={ratio:.2f}x"
+            f"Microblock {idx}: depth={len(chain)}, compression={ratio:.2f}x"
         )
 
-    # 7. Save event to disk
+    # 8. Final save
     event_manager.save_event(event, str(events_dir))
 
-    # 8. Finalize the event
+    # 9. Finalize the event and update chain
     payouts = event_manager.finalize_event(
         event=event,
         node_id="GENESIS_NODE",
@@ -90,7 +97,7 @@ def main() -> None:
         balances_file="balances.json",
     )
 
-    # 9. Report results
+    # 10. Report results
     chain_file = Path("chain.json")
     block_hash = None
     if chain_file.exists():

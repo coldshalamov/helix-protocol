@@ -9,7 +9,7 @@ recursively explores all child seeds as dictated by the output of
 """
 
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional
 
 from . import minihelix
 from .minihelix import G
@@ -37,6 +37,7 @@ class ExhaustiveMiner:
         self.block_size = len(target_block)
         self.max_depth = max_depth
         self.initial_seeds = list(_generate_initial_seeds())
+        self.attempts = 0
         self.checkpoint_path = checkpoint_path
 
     def _load_start_index(self) -> int:
@@ -57,15 +58,17 @@ class ExhaustiveMiner:
 
     def _dfs(self, seed: bytes, depth: int, chain: List[bytes]) -> Optional[List[bytes]]:
         """Depth-first search returning the seed chain or ``None``."""
+        self.attempts += 1
         output = G(seed, self.block_size)
         chain.append(seed)
         if output == self.target:
-            return list(chain)
+            result = list(chain)
+            print(f"Attempts for microblock: {self.attempts}")
+            return result
         if depth >= self.max_depth:
             chain.pop()
             return None
         next_len = output[0]
-        # Skip invalid lengths
         if next_len == 0 or next_len > self.block_size:
             chain.pop()
             return None
@@ -80,19 +83,17 @@ class ExhaustiveMiner:
 
     def mine(self, start_index: int = 0) -> Optional[List[bytes]]:
         """Search for a compression seed chain starting from ``start_index``."""
-
         if start_index == 0:
             start_index = self._load_start_index()
 
         found_index = None
+        result = None
         for idx in range(start_index, len(self.initial_seeds)):
             seed = self.initial_seeds[idx]
             result = self._dfs(seed, 1, [])
             if result is not None:
                 found_index = idx
                 break
-        else:
-            result = None
 
         if found_index is not None:
             self._save_start_index(found_index + 1)

@@ -211,6 +211,36 @@ class HelixNode(GossipNode):
         self.load_state()
         self.blockchain = bc.load_chain(str(self.chain_file))
 
+    def create_event(
+        self,
+        statement: str,
+        *,
+        parent_id: str = GENESIS_HASH,
+        private_key: str | None = None,
+    ) -> Dict[str, Any]:
+        """Create a new statement event using :func:`event_manager.create_event`."""
+
+        priv = self.private_key if private_key is None else private_key
+        event = event_manager.create_event(
+            statement,
+            microblock_size=self.microblock_size,
+            parent_id=parent_id,
+            private_key=priv,
+        )
+        evt_id = event["header"]["statement_id"]
+        self.events[evt_id] = event
+        return event
+
+    def import_event(self, event: Dict[str, Any]) -> None:
+        """Validate and store ``event`` in the node state."""
+
+        event_manager.validate_parent(event)
+        if not verify_statement_id(event):
+            raise ValueError("invalid statement_id")
+        evt_id = event["header"]["statement_id"]
+        self.events[evt_id] = event
+        self.save_state()
+
     def load_state(self) -> None:
         self.events = {}
         if self.events_dir.exists():
