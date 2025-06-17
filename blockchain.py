@@ -3,6 +3,55 @@ import hashlib
 import os
 from pathlib import Path
 from typing import List, Dict
+from helix.config import GENESIS_HASH
+
+
+def get_chain_tip(path: str = "blockchain.jsonl") -> str:
+    """Return the ``block_id`` of the last block in ``path``."""
+    file = Path(path)
+    if not file.exists():
+        return GENESIS_HASH
+
+    last_line = None
+    with open(file, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                last_line = line
+
+    if not last_line:
+        return GENESIS_HASH
+
+    try:
+        entry = json.loads(last_line)
+    except json.JSONDecodeError:
+        return GENESIS_HASH
+
+    return entry.get("block_id", GENESIS_HASH)
+
+from helix.config import GENESIS_HASH
+
+
+def get_chain_tip(path: str = "blockchain.jsonl") -> str:
+    """Return ``block_id`` of the last block in ``path``."""
+    file = Path(path)
+    if not file.exists():
+        return GENESIS_HASH
+
+    last: str | None = None
+    with open(file, "r", encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                last = line
+
+    if not last:
+        return GENESIS_HASH
+
+    try:
+        entry = json.loads(last)
+    except json.JSONDecodeError:
+        return GENESIS_HASH
+
+    return entry.get("block_id", GENESIS_HASH)
 
 
 def append_block(block_header: Dict, path: str = "blockchain.jsonl") -> None:
@@ -116,18 +165,16 @@ def resolve_fork(
 ) -> List[Dict]:
     """Return the preferred chain between ``local_chain`` and ``remote_chain``.
 
-    The remote chain is adopted only if it is longer, valid, and has a greater
-    total compression reward weight.
+    ``remote_chain`` is considered only if it is valid. It is adopted whenever
+    it has a greater valid length **or** achieves higher compression rewards.
     """
 
-    if len(remote_chain) <= len(local_chain):
-        return local_chain
     if not validate_chain(remote_chain):
         return local_chain
 
     local_weight = _chain_weight(local_chain, events_dir)
     remote_weight = _chain_weight(remote_chain, events_dir)
 
-    if remote_weight > local_weight:
+    if len(remote_chain) > len(local_chain) or remote_weight > local_weight:
         return remote_chain
     return local_chain

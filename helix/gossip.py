@@ -6,6 +6,7 @@ import json
 import queue
 import threading
 import time
+import hashlib
 from typing import Any, Dict
 
 from .config import GENESIS_HASH
@@ -14,9 +15,35 @@ from .config import GENESIS_HASH
 class LocalGossipNetwork:
     """A simple in-memory broadcast network for :class:`GossipNode`."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, seen_ttl: float = 300.0) -> None:
         self._nodes: Dict[str, GossipNode] = {}
         self._lock = threading.Lock()
+        self._seen: dict[str, float] = {}
+        self._seen_ttl = seen_ttl
+
+    def _hash_message(self, message: Dict[str, Any]) -> str:
+        data = json.dumps(message, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        return hashlib.sha256(data).hexdigest()
+
+    def _purge_seen(self) -> None:
+        if not self._seen:
+            return
+        now = time.monotonic()
+        expired = [h for h, t in self._seen.items() if now - t > self._seen_ttl]
+        for h in expired:
+            self._seen.pop(h, None)
+
+    def _is_new(self, message: Dict[str, Any]) -> bool:
+        h = self._hash_message(message)
+        self._purge_seen()
+        return h not in self._seen
+
+    def _mark_seen(self, message: Dict[str, Any]) -> None:
+        h = self._hash_message(message)
+        self._purge_seen()
+        self._seen[h] = time.monotonic()
 
     def register(self, node: GossipNode) -> None:
         with self._lock:
@@ -35,6 +62,9 @@ class LocalGossipNetwork:
         if log:
             print(f"{sender_id} broadcasting {msg_type}")
         with self._lock:
+            if not self._is_new(message):
+                return
+            self._mark_seen(message)
             for node_id, node in self._nodes.items():
                 if node_id == sender_id:
                     continue

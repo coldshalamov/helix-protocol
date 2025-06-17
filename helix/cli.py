@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import socket
 from pathlib import Path
 
 from . import (
@@ -38,6 +39,67 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print("unmined events detected")
         for eid in unmined:
             print(eid)
+
+    peers_file = base / "peers.json"
+    peers: list[dict] = []
+    if not peers_file.exists():
+        print("no peers file")
+    else:
+        try:
+            peers = json.loads(peers_file.read_text())
+        except Exception:
+            print("peer list invalid")
+            peers = []
+        if not peers:
+            print("no peers configured")
+
+    chain_file = base / "blockchain.jsonl"
+    chain = load_chain(str(chain_file)) if chain_file.exists() else []
+    local_height = len(chain)
+    mismatch = False
+    if peers:
+        for peer in peers:
+            host = peer.get("host")
+            port = peer.get("port")
+            if not host or not isinstance(port, int):
+                continue
+            try:
+                with socket.create_connection((host, port), timeout=1) as sock:
+                    sock.sendall(json.dumps({"type": "GET_HEIGHT"}).encode("utf-8"))
+                    data = sock.recv(65536)
+                reply = json.loads(data.decode("utf-8"))
+                height = int(reply.get("height"))
+                if height != local_height:
+                    mismatch = True
+            except Exception:
+                continue
+        if mismatch:
+            print("block height mismatch with peers")
+
+    missed: list[str] = []
+    invalid: list[str] = []
+    if events_dir.exists():
+        for path in events_dir.glob("*.json"):
+            ev = event_manager.load_event(str(path))
+            eid = ev.get("header", {}).get("statement_id", path.stem)
+            for idx, block in enumerate(ev.get("microblocks", [])):
+                seed = ev.get("seeds", [None])[idx]
+                if seed is None:
+                    missed.append(f"{eid}:{idx}")
+                else:
+                    try:
+                        if not event_manager.verify_seed_chain(seed, block):
+                            invalid.append(f"{eid}:{idx}")
+                    except Exception:
+                        invalid.append(f"{eid}:{idx}")
+    if missed:
+        print("missed microblocks:")
+        for m in missed:
+            print(m)
+    if invalid:
+        print("invalid seeds:")
+        for m in invalid:
+            print(m)
 
 
 def cmd_mine(args: argparse.Namespace) -> None:
@@ -101,6 +163,41 @@ def cmd_reassemble(args: argparse.Namespace) -> None:
     for idx, seed in enumerate(event.get("seeds", [])):
         length = len(seed) if seed is not None else 0
         print(f"Block {idx}: seed_len={length}")
+    print(statement)
+
+
+def cmd_verify_statement(args: argparse.Namespace) -> None:
+    """Verify and output a finalized statement."""
+    events_dir = Path(args.data_dir) / "events"
+    path = events_dir / f"{args.statement_hash}.json"
+    if not path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(path))
+
+    blocks = event.get("microblocks", [])
+    seeds = event.get("seeds", [])
+
+    if len(blocks) != len(seeds) or any(s is None for s in seeds):
+        raise SystemExit("missing mined seeds")
+
+    for idx, block in enumerate(blocks):
+        seed_chain = seeds[idx]
+        if not event_manager.verify_seed_chain(seed_chain, block):
+            raise SystemExit(f"invalid seed for block {idx}")
+
+    root, _tree = merkle_utils.build_merkle_tree(blocks)
+    hdr_root = event.get("header", {}).get("merkle_root")
+    if isinstance(hdr_root, str):
+        hdr_root = bytes.fromhex(hdr_root)
+    if hdr_root != root:
+        raise SystemExit("Merkle root mismatch")
+
+    statement = event_manager.reassemble_microblocks(blocks)
+    digest = event_manager.sha256(statement.encode("utf-8"))
+    if digest != args.statement_hash:
+        raise SystemExit("SHA-256 mismatch")
+
     print(statement)
 
 
@@ -231,6 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_view.add_argument("event_id", help="Event identifier")
     p_view.set_defaults(func=cmd_view_event)
 
+    p_verify = sub.add_parser(
+        "verify-statement", help="Verify statement integrity"
+    )
+    p_verify.add_argument("statement_hash", help="Statement hash")
+    p_verify.set_defaults(func=cmd_verify_statement)
+
     return parser
 
 
@@ -250,4 +353,5 @@ __all__ = [
     "cmd_view_chain",
     "cmd_remine_microblock",
     "cmd_view_event",
+    "cmd_verify_statement",
 ]
