@@ -28,8 +28,8 @@ def test_nested_mining_fallback(tmp_path, monkeypatch):
 
     chain = [b"a", minihelix.G(b"a", 2)]
     monkeypatch.setattr(
-        "helix.helix_node.nested_miner.find_nested_seed",
-        lambda target, max_depth: (chain, 2),
+        "helix.helix_node.exhaustive_miner.exhaustive_mine",
+        lambda target, max_depth: chain,
     )
 
     event = node.create_event("ab", private_key=None)

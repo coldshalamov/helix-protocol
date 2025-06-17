@@ -1,4 +1,4 @@
-from helix import nested_miner
+from helix import nested_miner, exhaustive_miner
 from helix import minihelix
 
 
@@ -17,12 +17,11 @@ def test_find_nested_seed_deterministic():
     intermediate = minihelix.G(base_seed, N)
     target = minihelix.G(intermediate, N)
 
-    result = nested_miner.find_nested_seed(target, max_depth=2, attempts=200)
-    assert result is not None, "find_nested_seed returned None"
+    chain = exhaustive_miner.exhaustive_mine(target, max_depth=2)
+    assert chain is not None, "exhaustive_mine returned None"
 
-    encoded, depth = result
-    chain = nested_miner._decode_chain(encoded, N)
-    assert depth == len(chain) <= 2
+    depth = len(chain)
+    assert depth <= 2
     assert nested_miner.verify_nested_seed(chain, target)
 
 
