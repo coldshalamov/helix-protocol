@@ -30,13 +30,17 @@ class ExhaustiveMiner:
         self.block_size = len(target_block)
         self.max_depth = max_depth
         self.initial_seeds = list(_generate_initial_seeds())
+        self.attempts = 0
 
     def _dfs(self, seed: bytes, depth: int, chain: List[bytes]) -> Optional[List[bytes]]:
         """Depth-first search returning the seed chain or ``None``."""
+        self.attempts += 1
         output = G(seed, self.block_size)
         chain.append(seed)
         if output == self.target:
-            return list(chain)
+            result = list(chain)
+            print(f"Attempts for microblock: {self.attempts}")
+            return result
         if depth >= self.max_depth:
             chain.pop()
             return None
@@ -56,11 +60,13 @@ class ExhaustiveMiner:
 
     def mine(self, start_index: int = 0) -> Optional[List[bytes]]:
         """Search for a compression seed chain starting from ``start_index``."""
+        self.attempts = 0
         for idx in range(start_index, len(self.initial_seeds)):
             seed = self.initial_seeds[idx]
             result = self._dfs(seed, 1, [])
             if result is not None:
                 return result
+        print(f"Attempts for microblock: {self.attempts}")
         return None
 
 
