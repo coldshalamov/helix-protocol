@@ -8,6 +8,7 @@ recursively explores all child seeds as dictated by the output of
 :func:`minihelix.G`.
 """
 
+from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 from . import minihelix
@@ -25,11 +26,34 @@ def _generate_initial_seeds() -> Iterable[bytes]:
 class ExhaustiveMiner:
     """Stateful exhaustive miner supporting checkpointing."""
 
-    def __init__(self, target_block: bytes, max_depth: int = 500) -> None:
+    def __init__(
+        self,
+        target_block: bytes,
+        max_depth: int = 500,
+        *,
+        checkpoint_path: str | None = None,
+    ) -> None:
         self.target = target_block
         self.block_size = len(target_block)
         self.max_depth = max_depth
         self.initial_seeds = list(_generate_initial_seeds())
+        self.checkpoint_path = checkpoint_path
+
+    def _load_start_index(self) -> int:
+        if not self.checkpoint_path:
+            return 0
+        path = Path(self.checkpoint_path)
+        if path.exists():
+            try:
+                return int(path.read_text())
+            except Exception:
+                return 0
+        return 0
+
+    def _save_start_index(self, index: int) -> None:
+        if not self.checkpoint_path:
+            return
+        Path(self.checkpoint_path).write_text(str(index))
 
     def _dfs(self, seed: bytes, depth: int, chain: List[bytes]) -> Optional[List[bytes]]:
         """Depth-first search returning the seed chain or ``None``."""
@@ -56,17 +80,41 @@ class ExhaustiveMiner:
 
     def mine(self, start_index: int = 0) -> Optional[List[bytes]]:
         """Search for a compression seed chain starting from ``start_index``."""
+
+        if start_index == 0:
+            start_index = self._load_start_index()
+
+        found_index = None
         for idx in range(start_index, len(self.initial_seeds)):
             seed = self.initial_seeds[idx]
             result = self._dfs(seed, 1, [])
             if result is not None:
-                return result
-        return None
+                found_index = idx
+                break
+        else:
+            result = None
+
+        if found_index is not None:
+            self._save_start_index(found_index + 1)
+        else:
+            self._save_start_index(len(self.initial_seeds))
+
+        return result
 
 
-def exhaustive_mine(target_block: bytes, *, max_depth: int = 500, start_index: int = 0) -> Optional[List[bytes]]:
+def exhaustive_mine(
+    target_block: bytes,
+    *,
+    max_depth: int = 500,
+    start_index: int = 0,
+    checkpoint_path: str | None = None,
+) -> Optional[List[bytes]]:
     """Convenience function returning the first valid seed chain."""
-    miner = ExhaustiveMiner(target_block, max_depth=max_depth)
+    miner = ExhaustiveMiner(
+        target_block,
+        max_depth=max_depth,
+        checkpoint_path=checkpoint_path,
+    )
     return miner.mine(start_index=start_index)
 
 

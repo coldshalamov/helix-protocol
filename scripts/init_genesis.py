@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from helix import event_manager, signature_utils, nested_miner
+from helix import event_manager, signature_utils, exhaustive_miner
+
+CHECKPOINT_FILE = Path("start_index.txt")
 
 
 def main() -> None:
@@ -21,33 +23,63 @@ def main() -> None:
     # 4. Sign the statement
     signature = signature_utils.sign_statement(statement, priv)
 
-    # 5. Create the event
-    event = event_manager.create_event(
-        statement=statement,
-        microblock_size=microblock_size,
-        private_key=priv,
-    )
-    event["originator_pub"] = pub
-    event["originator_sig"] = signature
+    events_dir = Path("data/events")
+    events_dir.mkdir(parents=True, exist_ok=True)
+    statement_id = event_manager.sha256(statement.encode("utf-8"))
+    event_path = events_dir / f"{statement_id}.json"
+
+    if event_path.exists():
+        event = event_manager.load_event(str(event_path))
+    else:
+        event = event_manager.create_event(
+            statement=statement,
+            microblock_size=microblock_size,
+            private_key=priv,
+        )
+        event["originator_pub"] = pub
+        event["originator_sig"] = signature
+        event_manager.save_event(event, str(events_dir))
+
+    start_index = 0
+    if CHECKPOINT_FILE.exists():
+        try:
+            start_index = int(CHECKPOINT_FILE.read_text())
+        except Exception:
+            start_index = 0
 
     # 6. Mine each microblock
     for idx, block in enumerate(event["microblocks"]):
-        result = nested_miner.find_nested_seed(block, max_depth=500)
+        if event["seeds"][idx] is not None:
+            continue
+
+        result = exhaustive_miner.exhaustive_mine(
+            block,
+            max_depth=500,
+            start_index=start_index,
+            checkpoint_path=str(CHECKPOINT_FILE),
+        )
         if result is None:
             print(f"Microblock {idx}: no seed found")
             continue
 
-        event["seeds"][idx] = result.encoded
-        event["seed_depths"][idx] = result.depth
+        encoded = bytes([len(result), len(result[0])]) + b"".join(result)
+        event["seeds"][idx] = encoded
+        event["seed_depths"][idx] = len(result)
         event_manager.mark_mined(event, idx)
+        event_manager.save_event(event, str(events_dir))
 
-        seed_len = result.encoded[1]
+        try:
+            start_index = int(CHECKPOINT_FILE.read_text())
+        except Exception:
+            start_index = 0
+
+        seed_len = len(result[0])
         ratio = microblock_size / seed_len if seed_len else 0
-        print(f"Microblock {idx}: depth={result.depth}, compression={ratio:.2f}x")
+        print(
+            f"Microblock {idx}: depth={len(result)}, compression={ratio:.2f}x"
+        )
 
     # 7. Save event to disk
-    events_dir = Path("data/events")
-    events_dir.mkdir(parents=True, exist_ok=True)
     event_manager.save_event(event, str(events_dir))
 
     # 8. Finalize the event
