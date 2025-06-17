@@ -130,6 +130,7 @@ __all__ = [
     "mine_microblocks",
     "initialize_genesis_block",
     "HelixNode",
+    "recover_from_chain",
 ]  # HelixNode and recover_from_chain will be defined in separate file to resolve conflicts cleanly
 
 
@@ -175,6 +176,8 @@ class HelixNode(GossipNode):
             self.genesis = None
 
         self.load_state()
+        self.blockchain = bc.load_chain(str(self.chain_file))
+        self.fork_chain: List[Dict[str, Any]] | None = None
 
     # ------------------------------------------------------------------
     # Persistence helpers
@@ -249,11 +252,22 @@ class HelixNode(GossipNode):
         self.save_state()
 
     def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
-        payouts = event_manager.finalize_event(event, node_id=self.node_id, chain_file=str(self.chain_file))
+        payouts = event_manager.finalize_event(
+            event, node_id=self.node_id, chain_file=str(self.chain_file)
+        )
         apply_mining_results(event, self.balances)
         for acct, amount in payouts.items():
             self.balances[acct] = self.balances.get(acct, 0.0) + amount
         self.save_state()
+
+        # update in-memory chain and broadcast the new block
+        chain = bc.load_chain(str(self.chain_file))
+        if chain:
+            self.blockchain = chain
+            block = dict(chain[-1])
+            block["height"] = len(chain) - 1
+            self.broadcast_block(block)
+
         self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
         return payouts
 
@@ -300,7 +314,12 @@ class HelixNode(GossipNode):
                 self.forward_message(message)
         elif mtype == GossipMessageType.FINALIZED_BLOCK:
             block = message.get("block")
-            if block and self.apply_block(block):
+            if block:
+                if self.apply_block(block):
+                    bc.append_block({k: v for k, v in block.items() if k != "height"}, path=str(self.chain_file))
+                else:
+                    self._track_fork(block)
+                self._resolve_forks()
                 self.forward_message(message)
 
     def _message_loop(self) -> None:
@@ -310,4 +329,63 @@ class HelixNode(GossipNode):
             except queue.Empty:
                 continue
             self._handle_message(msg)
+
+
+def _write_chain(chain: List[Dict[str, Any]], path: str) -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        for block in chain:
+            blk = dict(block)
+            blk.pop("height", None)
+            fh.write(json.dumps(blk) + "\n")
+
+
+def recover_from_chain(chain: List[Dict[str, Any]], events_dir: str) -> tuple[Dict[str, Dict[str, Any]], Dict[str, float]]:
+    events: Dict[str, Dict[str, Any]] = {}
+    balances: Dict[str, float] = {}
+    path = Path(events_dir)
+    for block in chain:
+        ids = block.get("event_ids") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        for evt_id in ids:
+            evt_file = path / f"{evt_id}.json"
+            if not evt_file.exists():
+                continue
+            try:
+                event = event_manager.load_event(str(evt_file))
+            except Exception:
+                continue
+            events[evt_id] = event
+            apply_mining_results(event, balances)
+            for acct, amt in event.get("payouts", {}).items():
+                balances[acct] = balances.get(acct, 0.0) + amt
+    return events, balances
+
+    # ------------------------------------------------------------------
+    # Fork handling helpers
+
+    def _track_fork(self, block: Dict[str, Any]) -> None:
+        if self.fork_chain is None:
+            # attempt to anchor fork on known parent in main chain
+            parent_id = block.get("parent_id")
+            idx = next((i for i, b in enumerate(self.blockchain) if b["block_id"] == parent_id), None)
+            if idx is None:
+                return
+            self.fork_chain = self.blockchain[: idx + 1]
+        if self.fork_chain[-1]["block_id"] == block.get("parent_id"):
+            self.fork_chain.append(block)
+
+    def _resolve_forks(self) -> None:
+        if not self.fork_chain:
+            return
+        chosen = bc.resolve_fork(self.blockchain, self.fork_chain, events_dir=str(self.events_dir))
+        if chosen is self.fork_chain:
+            self._adopt_chain(chosen)
+        self.fork_chain = None
+
+    def _adopt_chain(self, chain: List[Dict[str, Any]]) -> None:
+        self.blockchain = chain
+        _write_chain(chain, str(self.chain_file))
+        self.events, self.balances = recover_from_chain(chain, str(self.events_dir))
+        self.save_state()
 
