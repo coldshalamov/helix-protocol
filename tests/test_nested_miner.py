@@ -20,8 +20,7 @@ def test_find_nested_seed_deterministic():
     result = nested_miner.find_nested_seed(target, max_depth=2, attempts=200)
     assert result is not None, "find_nested_seed returned None"
 
-    encoded, depth = result
-    chain = nested_miner._decode_chain(encoded, N)
+    chain, depth = result
     assert depth == len(chain) <= 2
     assert nested_miner.verify_nested_seed(chain, target)
 

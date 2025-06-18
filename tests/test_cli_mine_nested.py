@@ -17,11 +17,11 @@ def test_cli_mine_nested(tmp_path, monkeypatch):
 
     seed = b"a"
     subseed = minihelix.G(seed, 2)
-    chain = bytes([2, len(seed)]) + seed + subseed
+    chain = [seed, subseed]
 
     monkeypatch.setattr(
-        "helix.cli.nested_miner.find_nested_seed",
-        lambda block, **kwargs: (chain, 2),
+        "helix.cli.exhaustive_miner.exhaustive_mine",
+        lambda block, **kwargs: chain,
     )
     monkeypatch.setattr("helix.cli.nested_miner.verify_nested_seed", lambda c, b: True)
 

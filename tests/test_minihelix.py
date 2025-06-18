@@ -45,12 +45,11 @@ def test_find_nested_seed_simple():
         block, max_depth=3, start_nonce=start_nonce, attempts=1
     )
     assert result is not None, "find_nested_seed did not return a result"
-    encoded, depth = result
-    print("Returned chain", encoded, "depth", depth)
+    chain, depth = result
+    print("Returned chain", chain, "depth", depth)
     assert depth == 3, f"expected depth 3, got {depth}"
-    expected = bytes([3, len(base_seed)]) + base_seed + inter1 + inter2
-    assert encoded == expected, "incorrect seed encoding"
-    chain = nested_miner._decode_chain(encoded, N)
+    expected = [base_seed, inter1, inter2]
+    assert chain == expected, "incorrect seed chain"
     assert nested_miner.verify_nested_seed(chain, block), "seed chain failed verification"
     print("Nested seed search SUCCESS")
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from . import (
     event_manager,
     nested_miner,
+    exhaustive_miner,
     betting_interface,
     signature_utils,
     merkle_utils,
@@ -111,11 +112,11 @@ def cmd_mine(args: argparse.Namespace) -> None:
     for idx, block in enumerate(event.get("microblocks", [])):
         if event.get("seeds", [None])[idx] is not None:
             continue
-        result = nested_miner.find_nested_seed(block)
-        if result is None:
+        chain = exhaustive_miner.exhaustive_mine(block)
+        if chain is None:
             print(f"No seed found for block {idx}")
             continue
-        chain, _depth = result
+        _depth = len(chain)
         if not nested_miner.verify_nested_seed(chain, block):
             print(f"Verification failed for block {idx}")
             continue
@@ -130,11 +131,11 @@ def cmd_remine_microblock(args: argparse.Namespace) -> None:
         raise SystemExit("Event not found")
     event = event_manager.load_event(str(path))
     block = event["microblocks"][args.index]
-    result = nested_miner.find_nested_seed(block)
-    if result is None:
+    chain = exhaustive_miner.exhaustive_mine(block)
+    if chain is None:
         print("No seed found")
         return
-    chain, _depth = result
+    _depth = len(chain)
     if not nested_miner.verify_nested_seed(chain, block):
         print("Verification failed")
         return

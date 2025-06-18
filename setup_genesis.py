@@ -6,7 +6,7 @@ from helix.signature_utils import generate_keypair, save_keys
 from helix.ledger import save_balances
 from helix.event_manager import create_event, save_event, mark_mined
 from helix.minihelix import mine_seed
-from helix import nested_miner, miner, minihelix
+from helix import nested_miner, miner, minihelix, exhaustive_miner
 
 
 STATEMENT = "Helix is to data what logic is to language."
@@ -33,9 +33,9 @@ def _mine_microblocks(event: dict) -> None:
         else:
             print(f"  Flat mining failed for index {idx}, trying nested...")
             seed = None
-            result = nested_miner.find_nested_seed(block, attempts=NESTED_ATTEMPTS)
-            if result is not None:
-                chain, depth = result
+            chain = exhaustive_miner.exhaustive_mine(block, max_depth=3)
+            if chain is not None:
+                depth = len(chain)
                 seed = chain[0]
                 if minihelix.verify_seed(seed, block):
                     print(

@@ -22,8 +22,8 @@ def test_remine_requires_force(tmp_path, monkeypatch):
     event = _create_event(tmp_path)
     evt_id = event["header"]["statement_id"]
 
-    chain = bytes([1, 1]) + b"a"
-    monkeypatch.setattr("helix.cli.nested_miner.find_nested_seed", lambda block, **kw: (chain, 1))
+    chain = [b"a"]
+    monkeypatch.setattr("helix.cli.exhaustive_miner.exhaustive_mine", lambda block, **kw: chain)
     monkeypatch.setattr("helix.cli.nested_miner.verify_nested_seed", lambda c, b: True)
 
     cli.main(
@@ -47,8 +47,8 @@ def test_remine_with_force(tmp_path, monkeypatch):
     event = _create_event(tmp_path)
     evt_id = event["header"]["statement_id"]
 
-    chain = bytes([1, 1]) + b"a"
-    monkeypatch.setattr("helix.cli.nested_miner.find_nested_seed", lambda block, **kw: (chain, 1))
+    chain = [b"a"]
+    monkeypatch.setattr("helix.cli.exhaustive_miner.exhaustive_mine", lambda block, **kw: chain)
     monkeypatch.setattr("helix.cli.nested_miner.verify_nested_seed", lambda c, b: True)
 
     cli.main(
