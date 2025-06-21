@@ -32,13 +32,13 @@ def test_verify_nested_seed_max_steps_limit():
     seed = b"s"
     chain = [seed]
     current = seed
-    # create a short chain to exercise the max_steps check without
-    # exceeding the global MAX_DEPTH limit
+    # Build a chain of 7 elements
     for _ in range(6):
         current = minihelix.G(current, N)
         chain.append(current)
     target = minihelix.G(current, N)
 
+    # Should fail at max_steps=5, succeed at max_steps=6
     assert not nested_miner.verify_nested_seed(chain, target, max_steps=5)
     assert nested_miner.verify_nested_seed(chain, target, max_steps=6)
 
@@ -53,7 +53,9 @@ def test_verify_nested_seed_max_depth_limit():
         chain.append(current)
     target = minihelix.G(current, N)
 
+    # Should fail if max_depth is too low
     assert not nested_miner.verify_nested_seed(chain, target, max_steps=len(chain) - 1)
+    # Should pass when depth limit is relaxed
     assert nested_miner.verify_nested_seed(
         chain,
         target,

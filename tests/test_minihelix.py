@@ -2,7 +2,7 @@ import hashlib
 import pytest
 
 from helix import minihelix as mh
-from helix import nested_miner, exhaustive_miner
+from helix import exhaustive_miner
 
 
 def test_G_deterministic():
@@ -26,7 +26,6 @@ def test_verify_seed_false():
     assert not mh.verify_seed(b"\x03", block)
 
 
-@pytest.mark.skip(reason="Legacy miner deprecated")
 def test_find_nested_seed_simple():
     N = 4
     base_seed = b"a"
@@ -40,7 +39,11 @@ def test_find_nested_seed_simple():
         block, max_depth=3, start_index=start_index
     )
     assert chain is not None, "exhaustive_mine did not return a result"
-    assert chain == [base_seed, inter1, inter2]
-    assert nested_miner.verify_nested_seed(chain, block), "seed chain failed verification"
-    print("Nested seed search SUCCESS")
+    assert chain == [base_seed, inter1, inter2], "incorrect seed chain"
 
+    # Verification of the full seed chain via G() composition
+    out = base_seed
+    for _ in range(3):
+        out = mh.G(out, N)
+    assert out == block, "seed chain failed verification"
+    print("Nested seed search SUCCESS")

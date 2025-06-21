@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Utilities for mining nested MiniHelix seeds."""
 
-from . import minihelix
+from . import minihelix, exhaustive_miner
 from .minihelix import G, mine_seed
 
 # Maximum supported depth when validating nested seed chains.  This
@@ -14,14 +14,15 @@ MAX_DEPTH = 500
 class NestedSeed(bytes):
     """Representation of a mined nested seed chain."""
 
-    def __new__(cls, chain_bytes: bytes, depth: int, encoded: bytes):
+    def __new__(cls, chain_bytes: bytes, depth: int, encoded: bytes, chain: list[bytes]):
         obj = bytes.__new__(cls, chain_bytes)
         obj.depth = depth
         obj.encoded = encoded
+        obj.chain = chain
         return obj
 
     def __iter__(self):
-        yield self.encoded
+        yield self.chain
         yield self.depth
 
 
@@ -135,7 +136,7 @@ def find_nested_seed(
 
     encoded = _encode_chain(chain)
     chain_bytes = b"".join(chain)
-    return NestedSeed(chain_bytes, len(chain), encoded)
+    return NestedSeed(chain_bytes, len(chain), encoded, chain)
 
 
 def verify_nested_seed(
@@ -219,18 +220,9 @@ def hybrid_mine(
 
     Returns a ``(seed, depth)`` tuple.
     """
-    result = find_nested_seed(
-        target_block,
-        max_depth=max_depth,
-        start_nonce=0,
-        attempts=attempts or 10_000,
-        max_steps=max_steps,
-    )
-    if result is not None:
-        encoded = result.encoded
-        depth = result.depth
-        chain = _decode_chain(encoded, len(target_block))
-        return chain[0], depth
+    chain = exhaustive_miner.exhaustive_mine(target_block, max_depth=max_depth)
+    if chain is not None:
+        return chain[0], len(chain)
 
     seed = mine_seed(target_block, max_attempts=attempts)
     if seed is not None:

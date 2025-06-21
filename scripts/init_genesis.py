@@ -1,3 +1,4 @@
+```python
 #!/usr/bin/env python3
 """Initialize the Helix genesis block with fully mined microblocks."""
 
@@ -113,3 +114,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+```
