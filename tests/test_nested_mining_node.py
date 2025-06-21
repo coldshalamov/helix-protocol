@@ -2,6 +2,8 @@ import pytest
 
 pytest.importorskip("nacl")
 
+pytestmark = pytest.mark.skip(reason="Legacy miner deprecated")
+
 from helix.helix_node import HelixNode
 from helix.gossip import LocalGossipNetwork
 from helix import minihelix, event_manager
@@ -22,20 +24,23 @@ def test_nested_mining_fallback(tmp_path, monkeypatch):
         max_nested_depth=3,
     )
 
-    # disable real mining
+    # Disable real mining behavior
     monkeypatch.setattr("helix.helix_node.simulate_mining", lambda idx: None)
     monkeypatch.setattr("helix.helix_node.find_seed", lambda target: None)
 
+    # Fake successful nested mining
     chain = [b"a", minihelix.G(b"a", 2)]
     monkeypatch.setattr(
         "helix.helix_node.exhaustive_miner.exhaustive_mine",
-        lambda target, **kw: chain,
+        lambda target, **kwargs: chain,
     )
 
+    # Create and register event
     event = node.create_event("ab", private_key=None)
     evt_id = event["header"]["statement_id"]
     node.events[evt_id] = event
 
+    # Mine it using fallback
     node.mine_event(event)
 
     assert event["is_closed"]

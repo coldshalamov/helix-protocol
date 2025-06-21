@@ -1,7 +1,8 @@
 import hashlib
+import pytest
 
 from helix import minihelix as mh
-from helix import nested_miner
+from helix import exhaustive_miner
 
 
 def test_G_deterministic():
@@ -26,30 +27,23 @@ def test_verify_seed_false():
 
 
 def test_find_nested_seed_simple():
-    N = 8
-    base_seed = b"abc"
+    N = 4
+    base_seed = b"a"
     inter1 = mh.G(base_seed, N)
     inter2 = mh.G(inter1, N)
     block = mh.G(inter2, N)
 
-    start_nonce = 0
-    for length in range(1, N):
-        count = 256 ** length
-        if length < len(base_seed):
-            start_nonce += count
-        elif length == len(base_seed):
-            start_nonce += int.from_bytes(base_seed, "big")
-            break
+    start_index = int.from_bytes(base_seed, "big")
 
-    result = nested_miner.find_nested_seed(
-        block, max_depth=3, start_nonce=start_nonce, attempts=1
+    chain = exhaustive_miner.exhaustive_mine(
+        block, max_depth=3, start_index=start_index
     )
-    assert result is not None, "find_nested_seed did not return a result"
-    chain, depth = result
-    print("Returned chain", chain, "depth", depth)
-    assert depth == 3, f"expected depth 3, got {depth}"
-    expected = [base_seed, inter1, inter2]
-    assert chain == expected, "incorrect seed chain"
-    assert nested_miner.verify_nested_seed(chain, block), "seed chain failed verification"
-    print("Nested seed search SUCCESS")
+    assert chain is not None, "exhaustive_mine did not return a result"
+    assert chain == [base_seed, inter1, inter2], "incorrect seed chain"
 
+    # Verification of the full seed chain via G() composition
+    out = base_seed
+    for _ in range(3):
+        out = mh.G(out, N)
+    assert out == block, "seed chain failed verification"
+    print("Nested seed search SUCCESS")

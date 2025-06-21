@@ -1,3 +1,4 @@
+```python
 from __future__ import annotations
 
 import os
@@ -6,7 +7,7 @@ from helix.signature_utils import generate_keypair, save_keys
 from helix.ledger import save_balances
 from helix.event_manager import create_event, save_event, mark_mined
 from helix.minihelix import mine_seed
-from helix import nested_miner, miner, minihelix, exhaustive_miner
+from helix import exhaustive_miner, miner, minihelix
 
 
 STATEMENT = "Helix is to data what logic is to language."
@@ -20,7 +21,6 @@ def _mine_microblocks(event: dict) -> None:
     """Mine all microblocks for ``event`` using flat, nested, or brute-force mining."""
 
     FLAT_ATTEMPTS = 5_000_000
-    NESTED_ATTEMPTS = 5_000_000
     BRUTE_FORCE_ATTEMPTS = 10_000_000
 
     for idx, block in enumerate(event["microblocks"]):
@@ -31,7 +31,7 @@ def _mine_microblocks(event: dict) -> None:
         if seed is not None and minihelix.verify_seed(seed, block):
             print(f"  Flat mining success: length {len(seed)}")
         else:
-            print(f"  Flat mining failed for index {idx}, trying nested...")
+            print(f"  Flat mining failed for index {idx}, trying exhaustive...")
             seed = None
             chain = exhaustive_miner.exhaustive_mine(block, max_depth=3)
             if chain is not None:
@@ -97,7 +97,6 @@ def main() -> None:
     balances = {pubkey: {"balance": 0, "genesis_tokens": 1000}}
     save_balances(balances, BALANCES_FILE)
 
-
     event = create_event(
         STATEMENT,
         microblock_size=MICROBLOCK_SIZE,
@@ -112,4 +111,4 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
     main()
-
+```

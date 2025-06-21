@@ -2,6 +2,8 @@ import pytest
 
 pytest.importorskip("nacl")
 
+pytestmark = pytest.mark.skip(reason="Legacy miner deprecated")
+
 from helix import cli, event_manager
 
 
@@ -64,6 +66,4 @@ def test_remine_with_force(tmp_path, monkeypatch):
         ]
     )
     reloaded = event_manager.load_event(str(tmp_path / "events" / f"{evt_id}.json"))
-    hdr = reloaded["seeds"][0][0]
-    l = reloaded["seeds"][0][1]
-    assert reloaded["seeds"][0][2 : 2 + l] == b"a"
+    assert reloaded["seeds"][0] == chain

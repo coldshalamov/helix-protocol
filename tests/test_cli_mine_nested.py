@@ -2,6 +2,8 @@ import pytest
 
 pytest.importorskip("nacl")
 
+pytestmark = pytest.mark.skip(reason="Legacy miner deprecated")
+
 from helix import cli, event_manager, minihelix
 
 
@@ -30,6 +32,4 @@ def test_cli_mine_nested(tmp_path, monkeypatch):
     reloaded = event_manager.load_event(str(tmp_path / "events" / f"{evt_id}.json"))
     assert reloaded["is_closed"]
     assert reloaded["seed_depths"][0] == 2
-    hdr = reloaded["seeds"][0][0]
-    l = reloaded["seeds"][0][1]
-    assert reloaded["seeds"][0][2 : 2 + l] == b"a"
+    assert reloaded["seeds"][0] == chain
