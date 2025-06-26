@@ -77,6 +77,12 @@ def load_or_create_keys(filename: str) -> Tuple[str, str]:
     return pub, priv
 
 
+def load_private_key(private_key: str) -> signing.SigningKey:
+    """Return a :class:`~nacl.signing.SigningKey` for ``private_key``."""
+    key_bytes = base64.b64decode(private_key)
+    return signing.SigningKey(key_bytes)
+
+
 __all__ = [
     "generate_keypair",
     "sign_statement",
