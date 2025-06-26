@@ -5,6 +5,8 @@ import pytest
 
 pytest.importorskip("nacl")
 
+pytest.skip("multi-node integration removed", allow_module_level=True)
+
 from helix.helix_node import HelixNode, GossipMessageType, simulate_mining, find_seed, verify_seed
 from helix.gossip import LocalGossipNetwork
 from helix import betting_interface as bi

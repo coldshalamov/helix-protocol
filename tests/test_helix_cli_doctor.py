@@ -4,7 +4,12 @@ import pytest
 
 pytest.importorskip("nacl")
 
+import pytest
+
 from helix import helix_cli, event_manager, signature_utils
+
+
+pytest.skip("doctor command removed", allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)

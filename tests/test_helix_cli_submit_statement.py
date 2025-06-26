@@ -3,7 +3,12 @@ import pytest
 
 pytest.importorskip("nacl")
 
+import pytest
+
 from helix import helix_cli
+
+
+pytest.skip("submit-statement command removed", allow_module_level=True)
 
 
 def test_submit_statement(tmp_path, capsys, monkeypatch):

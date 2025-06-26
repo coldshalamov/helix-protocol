@@ -17,7 +17,7 @@ def test_sender_does_not_receive_own_message():
     network = LocalGossipNetwork()
     node_a = GossipNode("A", network)
     node_b = GossipNode("B", network)
-    node_a.send_message({"type": "SEED", "payload": b"123"})
+    node_a.send_message({"type": "SEED", "payload": "123"})
     with pytest.raises(queue.Empty):
         node_a.receive(timeout=0.1)
     msg = node_b.receive(timeout=1)

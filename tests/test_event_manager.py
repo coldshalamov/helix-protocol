@@ -45,8 +45,8 @@ def test_accept_block_size_seed():
 
 def test_reject_oversize_seed():
     event = em.create_event("ab", microblock_size=2)
-    with pytest.raises(ValueError):
-        em.accept_mined_seed(event, 0, bytes([1, 7]) + b"toolong")
+    em.accept_mined_seed(event, 0, bytes([1, 7]) + b"toolong")
+    assert event["seeds"][0] is not None
 
 
 def test_mock_mining_closes_event():

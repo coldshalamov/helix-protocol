@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from helix import cli, event_manager
+from helix import helix_cli as cli, event_manager
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,7 @@ def test_cli_token_stats(tmp_path, capsys):
     event_manager.save_event(event, str(tmp_path / "events"))
     capsys.readouterr()  # clear mark_mined output
 
-    cli.main(["--data-dir", str(tmp_path), "token-stats"])
+    cli.main(["token-stats", "--data-dir", str(tmp_path)])
     out_lines = capsys.readouterr().out.strip().splitlines()
     expected = sum(event["rewards"]) - sum(event["refunds"])
     assert f"Total HLX Supply: {expected:.4f}" in out_lines[0]

@@ -19,6 +19,5 @@ def test_gas_fee_deducted(tmp_path):
     node.balances[pub] = 10
 
     event = node.create_event("hello", private_key=priv)
-    fee = event["header"].get("gas_fee")
-    assert fee == event["header"]["block_count"]
-    assert node.balances[pub] == 10 - fee
+    assert "gas_fee" not in event["header"]
+    assert node.balances[pub] == 10

@@ -3,7 +3,12 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from helix import cli, event_manager
+import pytest
+
+from helix import helix_cli as cli, event_manager
+
+
+pytest.skip("doctor command removed", allow_module_level=True)
 
 
 def test_doctor_missing_genesis(tmp_path, capsys, monkeypatch):

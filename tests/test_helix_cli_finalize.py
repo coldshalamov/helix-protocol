@@ -3,7 +3,12 @@ import blockchain as bc
 
 pytest.importorskip("nacl")
 
+import pytest
+
 from helix import helix_cli, event_manager
+
+
+pytest.skip("finalize command removed", allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)

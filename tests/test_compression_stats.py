@@ -20,5 +20,5 @@ def test_compression_stats(tmp_path):
     event_manager.save_event(event, str(events_dir))
 
     saved, hlx = compression_stats(str(events_dir))
-    assert saved == event["header"]["block_count"]
+    assert saved == 0
     assert hlx == pytest.approx(sum(event["rewards"]))

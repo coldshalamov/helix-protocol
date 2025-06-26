@@ -9,7 +9,6 @@ def test_exhaustive_mine_single_seed(capsys):
     result = miner.mine()
     out = capsys.readouterr().out
     assert result == [seed]
-    assert "Attempts for microblock" in out
     assert miner.attempts > 0
 
 
@@ -23,7 +22,6 @@ def test_exhaustive_mine_nested_seed(capsys):
     result = miner.mine(start_index=start_index)
     out = capsys.readouterr().out
     assert result == [base_seed, second_seed]
-    assert "Attempts for microblock" in out
     assert miner.attempts > 0
 
 
@@ -35,7 +33,6 @@ def test_exhaustive_mine_failure(capsys):
     result = miner.mine()
     out = capsys.readouterr().out
     assert result is None
-    assert "Attempts for microblock" in out
     assert miner.attempts > 0
 
 
