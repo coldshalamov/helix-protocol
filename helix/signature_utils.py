@@ -61,6 +61,12 @@ def load_keys(filename: str) -> Tuple[str, str]:
     return pub, priv
 
 
+def load_private_key(filename: str) -> str:
+    """Return only the private key stored in ``filename``."""
+    _, priv = load_keys(filename)
+    return priv
+
+
 def load_or_create_keys(filename: str) -> Tuple[str, str]:
     """Return keys from ``filename`` or generate and save new ones."""
     path = Path(filename)
