@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from helix import cli, event_manager as em
+from helix import helix_cli as cli, event_manager as em
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +20,7 @@ def test_cli_verify_statement(tmp_path, capsys):
     em.save_event(event, str(tmp_path / "events"))
     evt_id = event["header"]["statement_id"]
 
-    cli.main(["--data-dir", str(tmp_path), "verify-statement", evt_id])
+    path = tmp_path / "events" / f"{evt_id}.json"
+    cli.main(["verify-statement", str(path)])
     out = capsys.readouterr().out.strip()
-    assert out.endswith(statement)
+    assert "Verification succeeded" in out

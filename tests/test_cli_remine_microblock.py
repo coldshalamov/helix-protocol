@@ -4,7 +4,7 @@ pytest.importorskip("nacl")
 
 pytestmark = pytest.mark.skip(reason="Legacy miner deprecated")
 
-from helix import cli, event_manager
+from helix import helix_cli as cli, event_manager
 
 
 @pytest.fixture(autouse=True)
@@ -25,8 +25,14 @@ def test_remine_requires_force(tmp_path, monkeypatch):
     evt_id = event["header"]["statement_id"]
 
     chain = [b"a"]
-    monkeypatch.setattr("helix.cli.exhaustive_miner.exhaustive_mine", lambda block, **kw: chain)
-    monkeypatch.setattr("helix.cli.nested_miner.verify_nested_seed", lambda c, b: True)
+    monkeypatch.setattr(
+        "helix.helix_cli.exhaustive_miner.exhaustive_mine",
+        lambda block, **kw: chain,
+    )
+    monkeypatch.setattr(
+        "helix.helix_cli.nested_miner.verify_nested_seed",
+        lambda c, b: True,
+    )
 
     cli.main(
         [
@@ -50,8 +56,14 @@ def test_remine_with_force(tmp_path, monkeypatch):
     evt_id = event["header"]["statement_id"]
 
     chain = [b"a"]
-    monkeypatch.setattr("helix.cli.exhaustive_miner.exhaustive_mine", lambda block, **kw: chain)
-    monkeypatch.setattr("helix.cli.nested_miner.verify_nested_seed", lambda c, b: True)
+    monkeypatch.setattr(
+        "helix.helix_cli.exhaustive_miner.exhaustive_mine",
+        lambda block, **kw: chain,
+    )
+    monkeypatch.setattr(
+        "helix.helix_cli.nested_miner.verify_nested_seed",
+        lambda c, b: True,
+    )
 
     cli.main(
         [

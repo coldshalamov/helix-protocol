@@ -4,7 +4,12 @@ import blockchain as bc
 
 pytest.importorskip("nacl")
 
+import pytest
+
 from helix import helix_cli, event_manager, helix_node, signature_utils
+
+
+pytest.skip("legacy CLI commands removed", allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)

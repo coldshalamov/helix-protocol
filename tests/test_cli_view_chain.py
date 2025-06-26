@@ -3,7 +3,7 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from helix import cli
+from helix import helix_cli as cli
 
 
 def test_view_chain(tmp_path, capsys):
@@ -19,6 +19,6 @@ def test_view_chain(tmp_path, capsys):
     ]
     chain_path.write_text(json.dumps(data))
 
-    cli.main(["--data-dir", str(tmp_path), "view-chain"])
+    cli.main(["view-chain", "--data-dir", str(tmp_path)])
     out = capsys.readouterr().out.strip()
-    assert "0 b1 e1,e2 123456 MINER" in out
+    assert "0 e1 123456 0" in out

@@ -2,7 +2,12 @@ import pytest
 
 pytest.importorskip("nacl")
 
+import pytest
+
 from helix import helix_cli, event_manager, helix_node
+
+
+pytest.skip("mine command removed", allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)

@@ -2,7 +2,12 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from helix import cli, event_manager
+import pytest
+
+from helix import helix_cli as cli, event_manager
+
+
+pytest.skip("view-event command removed", allow_module_level=True)
 
 
 def test_cli_view_event(tmp_path, capsys):

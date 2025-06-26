@@ -4,7 +4,7 @@ pytest.importorskip("nacl")
 
 pytestmark = pytest.mark.skip(reason="Legacy miner deprecated")
 
-from helix import cli, event_manager, minihelix
+from helix import helix_cli as cli, event_manager, minihelix
 
 
 @pytest.fixture(autouse=True)
@@ -22,10 +22,12 @@ def test_cli_mine_nested(tmp_path, monkeypatch):
     chain = [seed, subseed]
 
     monkeypatch.setattr(
-        "helix.cli.exhaustive_miner.exhaustive_mine",
+        "helix.helix_cli.exhaustive_miner.exhaustive_mine",
         lambda block, **kwargs: chain,
     )
-    monkeypatch.setattr("helix.cli.nested_miner.verify_nested_seed", lambda c, b: True)
+    monkeypatch.setattr(
+        "helix.helix_cli.nested_miner.verify_nested_seed", lambda c, b: True
+    )
 
     cli.main(["--data-dir", str(tmp_path), "mine", evt_id])
 
