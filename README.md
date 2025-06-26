@@ -75,6 +75,14 @@ The only external dependency at the moment is [PyNaCl](https://pypi.org/project/
 pip install pynacl
 ```
 
+### Environment Setup
+
+Before running scripts or tests, add the repository root to your `PYTHONPATH`:
+
+```bash
+source env.sh
+```
+
 ## ⚙️ Genesis Setup
 
 After installing the dependencies, create the initial keys and genesis event:
