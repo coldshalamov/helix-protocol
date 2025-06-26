@@ -8,6 +8,7 @@ import hashlib
 import socket
 import base64
 from pathlib import Path
+import importlib
 
 from . import (
     event_manager,
@@ -61,6 +62,30 @@ def cmd_view_chain(args: argparse.Namespace) -> None:
         print(f"{idx} {evt_id} {ts} {micro_count}")
 
     print(f"Total blocks: {len(blocks)}")
+
+
+def doctor(args: argparse.Namespace) -> None:
+    """Check whether required files and dependencies exist."""
+    paths = [
+        "data/events",
+        "data/balances.json",
+        "data/blockchain.jsonl",
+        "wallet.json",
+        "requirements.txt",
+    ]
+    missing = False
+    for p in paths:
+        if not Path(p).exists():
+            print(f"Missing: {p}")
+            missing = True
+    try:
+        importlib.import_module("nacl")
+    except Exception:
+        print("Missing: nacl")
+        missing = True
+    if not missing:
+        print("System check passed.")
+
 from .config import GENESIS_HASH
 
 def cmd_mine_benchmark(args: argparse.Namespace) -> None:
@@ -234,6 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    doctor_parser = sub.add_parser("doctor", help="Check system health")
+    doctor_parser.set_defaults(func=doctor)
+
     p_bench = sub.add_parser("mine-benchmark", help="Benchmark nested mining")
     p_bench.add_argument("--depth", type=int, default=4, help="Max nesting depth")
     p_bench.set_defaults(func=cmd_mine_benchmark)
@@ -295,4 +323,5 @@ __all__ = [
     "cmd_show_balance",
     "place_bet",
     "cmd_view_chain",
+    "doctor",
 ]
