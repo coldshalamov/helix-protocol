@@ -154,6 +154,38 @@ def cmd_show_balance(args: argparse.Namespace) -> None:
     print(balances.get(pub, 0))
 
 
+def place_bet(args: argparse.Namespace) -> None:
+    """Place a signed YES/NO bet on a statement."""
+    wallet_path = Path("wallet.json")
+    if not wallet_path.exists():
+        raise SystemExit("wallet.json not found")
+
+    with open(wallet_path, "r", encoding="utf-8") as fh:
+        wallet = json.load(fh)
+
+    choice = args.choice.upper()
+    if choice not in {"YES", "NO"}:
+        raise SystemExit("choice must be YES or NO")
+
+    signing_key = signature_utils.load_private_key(wallet["private"])
+
+    bet = {
+        "event_id": args.statement_id,
+        "public_key": wallet["public"],
+        "choice": choice,
+        "amount": int(args.amount),
+    }
+    payload = json.dumps(bet, sort_keys=True).encode("utf-8")
+    signature = signing_key.sign(payload).signature.hex()
+    bet["signature"] = signature
+
+    try:
+        betting_interface.record_bet(bet)
+        print("Bet submitted")
+    except Exception as exc:
+        print(f"Bet submission failed: {exc}")
+
+
 def cmd_verify_statement(args: argparse.Namespace) -> None:
     """Verify mined event integrity."""
 
@@ -234,6 +266,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_balance.add_argument("--balances", required=True, help="Balances file")
     p_balance.set_defaults(func=cmd_show_balance)
 
+    bet_parser = sub.add_parser("bet", help="Place a YES or NO bet")
+    bet_parser.add_argument("statement_id", help="Statement ID")
+    bet_parser.add_argument("choice", help="YES or NO")
+    bet_parser.add_argument("amount", type=int, help="Amount in HLX")
+    bet_parser.set_defaults(func=place_bet)
+
     p_chain = sub.add_parser("view-chain", help="Display blockchain summary")
     p_chain.add_argument("--data-dir", default="data", help="Data directory")
     p_chain.set_defaults(func=cmd_view_chain)
@@ -255,5 +293,6 @@ __all__ = [
     "cmd_import_wallet",
     "cmd_verify_statement",
     "cmd_show_balance",
+    "place_bet",
     "cmd_view_chain",
 ]
