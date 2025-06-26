@@ -7,6 +7,7 @@ import time
 import hashlib
 import socket
 import base64
+import threading
 from pathlib import Path
 import importlib
 
@@ -21,7 +22,7 @@ from . import (
 )
 from .ledger import load_balances, save_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
-from .blockchain import load_chain
+from .blockchain import load_chain, get_chain_tip
 
 
 def cmd_view_chain(args: argparse.Namespace) -> None:
@@ -179,6 +180,103 @@ def cmd_show_balance(args: argparse.Namespace) -> None:
     print(balances.get(pub, 0))
 
 
+<<<<<<< codex/expand-helix_cli.py-with-subcommands
+def cmd_submit(args: argparse.Namespace) -> None:
+    """Create a new statement event and save it."""
+
+    pub, priv = signature_utils.load_keys("wallet.json")
+    event = event_manager.create_event(
+        args.statement,
+        microblock_size=args.microblock_size,
+        private_key=priv,
+    )
+    event_manager.save_event(event, "data/events")
+    print(event["header"]["statement_id"])
+
+
+def cmd_mine(args: argparse.Namespace) -> None:
+    """Mine all microblocks for the specified event."""
+
+    evt_path = Path("data/events") / f"{args.statement_id}.json"
+    if not evt_path.exists():
+        raise SystemExit("Event not found")
+    event = event_manager.load_event(str(evt_path))
+    for idx, block in enumerate(event.get("microblocks", [])):
+        if event.get("seeds", [None])[idx] is not None:
+            continue
+        seed = minihelix.mine_seed(block)
+        if seed is None:
+            continue
+        event["seeds"][idx] = [seed.hex()]
+        event_manager.mark_mined(event, idx)
+    event_manager.save_event(event, "data/events")
+
+
+def cmd_finalize(args: argparse.Namespace) -> None:
+    """Finalize an event and append it to the chain."""
+
+    path = Path("data/events") / f"{args.statement_id}.json"
+    if not path.exists():
+        raise SystemExit("Event not found")
+    event = event_manager.load_event(str(path))
+    node = helix_node.HelixNode(
+        events_dir="data/events",
+        balances_file="data/balances.json",
+        chain_file="data/blockchain.jsonl",
+        network=LocalGossipNetwork(),
+        node_id="FINALIZER",
+    )
+    node.finalize_event(event)
+    print("Event finalized")
+
+
+def cmd_view_tip(args: argparse.Namespace) -> None:
+    """Display the current blockchain tip."""
+
+    tip = get_chain_tip("data/blockchain.jsonl")
+    print(tip)
+
+
+def cmd_balance(args: argparse.Namespace) -> None:
+    """Print wallet HLX balance."""
+
+    pub, _ = signature_utils.load_keys("wallet.json")
+    balances = load_balances("data/balances.json")
+    print(balances.get(pub, 0))
+
+
+def cmd_sync(args: argparse.Namespace) -> None:
+    """Run a live node that syncs and mines blocks."""
+
+    node = helix_node.HelixNode(
+        events_dir="data/events",
+        balances_file="data/balances.json",
+        chain_file="data/blockchain.jsonl",
+        network=LocalGossipNetwork(),
+        node_id="SYNC",
+    )
+    threading.Thread(target=node._message_loop, daemon=True).start()
+    if hasattr(node, "start_sync_loop"):
+        node.start_sync_loop()
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Verify local Helix setup."""
+
+    required = [
+        Path("data/events"),
+        Path("data/balances.json"),
+        Path("data/blockchain.jsonl"),
+        Path("wallet.json"),
+        Path("requirements.txt"),
+    ]
+    missing = [str(p) for p in required if not p.exists()]
+    if missing:
+        for m in missing:
+            print(f"Missing: {m}")
+    else:
+        print("System check passed.")
+=======
 def place_bet(args: argparse.Namespace) -> None:
     """Place a signed YES/NO bet on a statement."""
     wallet_path = Path("wallet.json")
@@ -209,6 +307,7 @@ def place_bet(args: argparse.Namespace) -> None:
         print("Bet submitted")
     except Exception as exc:
         print(f"Bet submission failed: {exc}")
+>>>>>>> main
 
 
 def cmd_verify_statement(args: argparse.Namespace) -> None:
@@ -304,6 +403,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_chain.add_argument("--data-dir", default="data", help="Data directory")
     p_chain.set_defaults(func=cmd_view_chain)
 
+    p_submit = sub.add_parser("submit", help="Create and save a new statement")
+    p_submit.add_argument("statement", help="Statement text")
+    p_submit.add_argument("--microblock-size", type=int, default=3, help="Microblock size")
+    p_submit.set_defaults(func=cmd_submit)
+
+    p_mine = sub.add_parser("mine", help="Mine microblocks for an event")
+    p_mine.add_argument("statement_id", help="Statement identifier")
+    p_mine.set_defaults(func=cmd_mine)
+
+    p_final = sub.add_parser("finalize", help="Finalize an event")
+    p_final.add_argument("statement_id", help="Statement identifier")
+    p_final.set_defaults(func=cmd_finalize)
+
+    p_tip = sub.add_parser("view", help="Show blockchain tip")
+    p_tip.set_defaults(func=cmd_view_tip)
+
+    p_bal = sub.add_parser("balance", help="Show wallet balance")
+    p_bal.set_defaults(func=cmd_balance)
+
+    sub.add_parser("sync", help="Run a syncing node").set_defaults(func=cmd_sync)
+
+    sub.add_parser("doctor", help="Verify setup").set_defaults(func=cmd_doctor)
+
     return parser
 
 def main(argv: list[str] | None = None) -> None:
@@ -323,5 +445,15 @@ __all__ = [
     "cmd_show_balance",
     "place_bet",
     "cmd_view_chain",
+<<<<<<< codex/expand-helix_cli.py-with-subcommands
+    "cmd_submit",
+    "cmd_mine",
+    "cmd_finalize",
+    "cmd_view_tip",
+    "cmd_balance",
+    "cmd_sync",
+    "cmd_doctor",
+=======
     "doctor",
+>>>>>>> main
 ]
