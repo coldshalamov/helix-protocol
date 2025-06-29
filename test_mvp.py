@@ -1,53 +1,60 @@
+import json
+import os
+import sys
+from pathlib import Path
+
+# Ensure repository root on path
+sys.path.append(str(Path(__file__).resolve().parent))
+
 from helix import event_manager, minihelix, betting_interface, helix_node
-from helix.ledger import load_balances
 from helix.wallet import load_wallet, generate_wallet
-from helix.gossip import LocalGossipNetwork
 
 
 def main() -> None:
-    wallet_file = "wallet.json"
-    try:
+    wallet_file = Path("wallet.json")
+    if wallet_file.exists():
         pub, priv = load_wallet(wallet_file)
         print("Loaded existing wallet")
-    except FileNotFoundError:
+    else:
         pub, priv = generate_wallet(wallet_file)
         print("Generated new wallet")
 
-    print("Submitting statement...")
+    chain_file = "helix_chain.json"
+    if not os.path.exists(chain_file):
+        with open(chain_file, "w", encoding="utf-8") as fh:
+            json.dump([], fh)
+
+    statement = "Helix is to blockchain what logic is to language"
     event = event_manager.create_event(
-        "MVP test statement",
+        statement,
         microblock_size=3,
         private_key=priv,
     )
     event_manager.save_event(event, "data/events")
 
-    print("Mining microblocks...")
     for idx, block in enumerate(event["microblocks"]):
         seed = minihelix.mine_seed(block)
         if seed is not None:
             event_manager.accept_mined_seed(event, idx, [seed])
     event_manager.save_event(event, "data/events")
 
-    print("Placing YES bet...")
     bet = betting_interface.submit_bet(
-        event["header"]["statement_id"], "YES", 1, wallet_file
+        event["header"]["statement_id"], "YES", 1, str(wallet_file)
     )
     betting_interface.record_bet(event, bet)
 
-    print("Finalizing event...")
-    network = LocalGossipNetwork()
     node = helix_node.HelixNode(
         events_dir="data/events",
         balances_file="data/balances.json",
-        chain_file="data/blockchain.jsonl",
+        chain_file=chain_file,
         node_id=pub,
-        network=network,
+        network=helix_node.LocalGossipNetwork(),
         microblock_size=3,
     )
     node.events[event["header"]["statement_id"]] = event
     node.finalize_event(event)
 
-    balances = load_balances("data/balances.json")
+    balances = node.balances
     print("Wallet balance:", balances.get(pub, 0.0))
 
 
