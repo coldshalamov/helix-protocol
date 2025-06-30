@@ -23,3 +23,7 @@ def _ensure_local_genesis() -> None:
             pass
 
 _ensure_local_genesis()
+
+from .batch_reassembler import reassemble_statement
+
+__all__ = ["reassemble_statement"]
