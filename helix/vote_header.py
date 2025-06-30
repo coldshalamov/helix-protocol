@@ -1,8 +1,9 @@
 """Binary encoder for finalized event vote counts."""
 
 from __future__ import annotations
-
 from typing import Tuple
+
+VOTE_SCALE = 100
 
 
 def _encode_value(value: int) -> tuple[int, int, int]:
@@ -21,9 +22,8 @@ def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
     The returned bytes contain two length-prefixed integers as described in the
     module documentation.
     """
-
-    yes_int = int(round(yes_votes * 100))
-    no_int = int(round(no_votes * 100))
+    yes_int = int(round(yes_votes * VOTE_SCALE))
+    no_int = int(round(no_votes * VOTE_SCALE))
 
     yes_prefix, yes_bits, yes_len = _encode_value(yes_int)
     no_prefix, no_bits, no_len = _encode_value(no_int)
@@ -31,13 +31,9 @@ def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
     total_bits = 5 + yes_len + 5 + no_len
 
     value = 0
-    # YES prefix
     value = (value << 5) | yes_prefix
-    # YES value
     value = (value << yes_len) | yes_bits
-    # NO prefix
     value = (value << 5) | no_prefix
-    # NO value
     value = (value << no_len) | no_bits
 
     byte_len = (total_bits + 7) // 8
@@ -68,7 +64,7 @@ def decode_vote_header(data: bytes) -> Tuple[float, float]:
     no_len = no_prefix + 1
     no_val = take(no_len)
 
-    return yes_val / 100.0, no_val / 100.0
+    return yes_val / VOTE_SCALE, no_val / VOTE_SCALE
 
 
 __all__ = ["encode_vote_header", "decode_vote_header"]
