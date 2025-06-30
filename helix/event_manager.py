@@ -16,6 +16,7 @@ from .betting_interface import get_bets_for_event
 from .ledger import apply_mining_results
 from .statement_registry import finalize_statement
 from .minihelix import G
+from .vote_header import encode_vote_header
 
 DEFAULT_MICROBLOCK_SIZE = 8
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -542,3 +543,52 @@ def append_block(block_header: Dict[str, Any], chain_file: str = "blocks.json") 
     chain.append(block_header)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(chain, f, indent=2)
+
+
+def finalize_event_by_id(
+    event_id: str,
+    *,
+    events_dir: str = "events",
+    seed_chain_file: str = "seedchain.bin",
+    node_id: Optional[str] = None,
+    chain_file: str = "blockchain.jsonl",
+    balances_file: Optional[str] = None,
+) -> Dict[str, float]:
+    """Finalize ``event_id`` and append its seeds to ``seed_chain_file``.
+
+    The event is loaded from ``events_dir`` and finalized using
+    :func:`finalize_event`. The total YES and NO stakes are encoded using
+    :func:`encode_vote_header` and written along with all seed chains to the
+    binary seed chain file.
+    """
+
+    path = Path(events_dir) / f"{event_id}.json"
+    event = load_event(str(path))
+
+    payouts = finalize_event(
+        event,
+        node_id=node_id,
+        chain_file=chain_file,
+        balances_file=balances_file,
+    )
+
+    seeds: List[bytes] = []
+    for chain in event.get("seeds", []):
+        if chain is None:
+            raise ValueError("missing seed for finalized event")
+        if isinstance(chain, (bytes, bytearray)):
+            encoded = bytes(chain)
+        else:
+            encoded = nested_miner.encode_chain(chain)
+        seeds.append(encoded)
+
+    batch = b"".join(seeds)
+
+    yes_votes = sum(b.get("stake", 0.0) for b in event.get("bets", {}).get("YES", []))
+    no_votes = sum(b.get("stake", 0.0) for b in event.get("bets", {}).get("NO", []))
+    header = bytes.fromhex(event_id) + encode_vote_header(float(yes_votes), float(no_votes))
+
+    with open(seed_chain_file, "ab") as fh:
+        fh.write(header + batch)
+
+    return payouts
