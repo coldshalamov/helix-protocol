@@ -38,10 +38,7 @@ def cmd_view_chain(args: argparse.Namespace) -> None:
     for idx, block in enumerate(blocks):
         # determine event identifier
         evt_ids = (
-            block.get("event_ids")
-            or block.get("events")
-            or block.get("event_id")
-            or []
+            block.get("event_ids") or block.get("events") or block.get("event_id") or []
         )
         if isinstance(evt_ids, list):
             evt_id = evt_ids[0] if evt_ids else ""
@@ -87,7 +84,9 @@ def doctor(args: argparse.Namespace) -> None:
     if not missing:
         print("System check passed.")
 
+
 from .config import GENESIS_HASH
+
 
 def cmd_mine_benchmark(args: argparse.Namespace) -> None:
     size = event_manager.DEFAULT_MICROBLOCK_SIZE
@@ -122,6 +121,7 @@ def cmd_mine_benchmark(args: argparse.Namespace) -> None:
     print(f"Compression ratio: {ratio:.2f}x")
     print(f"Seed length: {len(seed)} depth={depth}")
 
+
 def cmd_view_peers(args: argparse.Namespace) -> None:
     path = Path(args.peers_file)
     if not path.exists():
@@ -152,6 +152,7 @@ def cmd_view_peers(args: argparse.Namespace) -> None:
                 reachable = False
         print(f"{node_id} last_seen={last_seen} reachable={reachable}")
 
+
 def cmd_export_wallet(args: argparse.Namespace) -> None:
     pub, priv = signature_utils.load_keys(args.wallet)
     balances = load_balances(str(args.balances))
@@ -162,6 +163,7 @@ def cmd_export_wallet(args: argparse.Namespace) -> None:
     }
     encoded = base64.b64encode(json.dumps(data).encode("utf-8")).decode("ascii")
     print(encoded)
+
 
 def cmd_import_wallet(args: argparse.Namespace) -> None:
     raw = base64.b64decode(args.data)
@@ -174,13 +176,13 @@ def cmd_import_wallet(args: argparse.Namespace) -> None:
     balances[pub] = balance
     save_balances(balances, str(args.balances))
 
+
 def cmd_show_balance(args: argparse.Namespace) -> None:
     pub, _ = signature_utils.load_keys(args.wallet)
     balances = load_balances(str(args.balances))
     print(balances.get(pub, 0))
 
 
-<<<<<<< codex/expand-helix_cli.py-with-subcommands
 def cmd_submit(args: argparse.Namespace) -> None:
     """Create a new statement event and save it."""
 
@@ -276,7 +278,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             print(f"Missing: {m}")
     else:
         print("System check passed.")
-=======
+
+
 def place_bet(args: argparse.Namespace) -> None:
     """Place a signed YES/NO bet on a statement."""
     wallet_path = Path("wallet.json")
@@ -307,7 +310,6 @@ def place_bet(args: argparse.Namespace) -> None:
         print("Bet submitted")
     except Exception as exc:
         print(f"Bet submission failed: {exc}")
->>>>>>> main
 
 
 def cmd_verify_statement(args: argparse.Namespace) -> None:
@@ -329,6 +331,7 @@ def cmd_verify_statement(args: argparse.Namespace) -> None:
     else:
         print("Verification failed")
 
+
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
 
@@ -349,6 +352,7 @@ def cmd_token_stats(args: argparse.Namespace) -> None:
     print(f"Burned from Gas: {burned:.4f}")
     print(f"HLX Minted via Compression: {minted:.4f}")
     print("Token Velocity: N/A")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -405,7 +409,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_submit = sub.add_parser("submit", help="Create and save a new statement")
     p_submit.add_argument("statement", help="Statement text")
-    p_submit.add_argument("--microblock-size", type=int, default=3, help="Microblock size")
+    p_submit.add_argument(
+        "--microblock-size", type=int, default=3, help="Microblock size"
+    )
     p_submit.set_defaults(func=cmd_submit)
 
     p_mine = sub.add_parser("mine", help="Mine microblocks for an event")
@@ -428,10 +434,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
+
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)
+
 
 __all__ = [
     "main",
@@ -445,7 +453,6 @@ __all__ = [
     "cmd_show_balance",
     "place_bet",
     "cmd_view_chain",
-<<<<<<< codex/expand-helix_cli.py-with-subcommands
     "cmd_submit",
     "cmd_mine",
     "cmd_finalize",
@@ -453,7 +460,4 @@ __all__ = [
     "cmd_balance",
     "cmd_sync",
     "cmd_doctor",
-=======
-    "doctor",
->>>>>>> main
 ]
