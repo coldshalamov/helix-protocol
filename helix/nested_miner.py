@@ -14,7 +14,9 @@ MAX_DEPTH = 500
 class NestedSeed(bytes):
     """Representation of a mined nested seed chain."""
 
-    def __new__(cls, chain_bytes: bytes, depth: int, encoded: bytes, chain: list[bytes]):
+    def __new__(
+        cls, chain_bytes: bytes, depth: int, encoded: bytes, chain: list[bytes]
+    ):
         obj = bytes.__new__(cls, chain_bytes)
         obj.depth = depth
         obj.encoded = encoded
@@ -58,13 +60,6 @@ def decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
     return _decode_chain(encoded, block_size)
 
 
-def decode_header(header: int) -> tuple[int, int]:
-    """Decode ``header`` byte into ``(depth, seed_len)``."""
-    depth = header >> 4
-    seed_len = header & 0x0F
-    return depth, seed_len
-
-
 def _seed_is_valid(seed: bytes, block_size: int) -> bool:
     """Return True if ``seed`` length does not exceed ``block_size``."""
     return 0 < len(seed) <= block_size
@@ -90,7 +85,7 @@ def find_nested_seed(
     def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
         """Return the seed corresponding to ``nonce``."""
         for length in range(1, max_len + 1):
-            count = 256 ** length
+            count = 256**length
             if nonce < count:
                 return nonce.to_bytes(length, "big")
             nonce -= count
@@ -127,7 +122,7 @@ def find_nested_seed(
 
             print(f"match depth={depth} size={len(seed)}")
             return [seed]
-        
+
         return None
 
     chain = dfs(target_block, 1, start_nonce)
@@ -230,7 +225,10 @@ def hybrid_mine(
 
     return None
 
-def unpack_seed_chain(seed_chain: list[bytes] | bytes, *, block_size: int | None = None) -> bytes:
+
+def unpack_seed_chain(
+    seed_chain: list[bytes] | bytes, *, block_size: int | None = None
+) -> bytes:
     """Return the microblock generated from ``seed_chain``.
 
     The chain may be provided either as a list of seeds or the encoded
@@ -247,7 +245,11 @@ def unpack_seed_chain(seed_chain: list[bytes] | bytes, *, block_size: int | None
         seed = seed_chain[2 : 2 + seed_len]
         rest = seed_chain[2 + seed_len :]
         if block_size is None:
-            block_size = len(rest) // (depth - 1) if depth > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
+            block_size = (
+                len(rest) // (depth - 1)
+                if depth > 1
+                else minihelix.DEFAULT_MICROBLOCK_SIZE
+            )
         chain: list[bytes] = [seed]
         for i in range(depth - 1):
             start = i * block_size
@@ -255,10 +257,11 @@ def unpack_seed_chain(seed_chain: list[bytes] | bytes, *, block_size: int | None
     else:
         chain = list(seed_chain)
         if block_size is None:
-            block_size = len(chain[1]) if len(chain) > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
+            block_size = (
+                len(chain[1]) if len(chain) > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
+            )
 
     current = chain[0]
     for _ in range(len(chain)):
         current = G(current, block_size)
     return current
-
