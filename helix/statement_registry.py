@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Iterable, Set, List
+from typing import Iterable, Set, List, Dict, Any
 
 try:
     import blockchain as _bc
@@ -114,4 +114,12 @@ class StatementRegistry:
         return removed
 
 
-__all__ = ["StatementRegistry"]
+__all__ = ["StatementRegistry", "finalize_statement"]
+
+
+def finalize_statement(event: Dict[str, Any]) -> str:
+    """Mark ``event`` as finalized in a registry-independent way."""
+    statement_id = event.get("header", {}).get("statement_id")
+    event["finalized"] = True
+    return statement_id
+

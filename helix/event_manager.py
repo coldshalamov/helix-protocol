@@ -12,6 +12,9 @@ from .config import GENESIS_HASH
 from .signature_utils import verify_signature, sign_data, generate_keypair
 from .merkle_utils import build_merkle_tree
 from . import nested_miner, betting_interface
+from .betting_interface import get_bets_for_event
+from .ledger import apply_mining_results
+from .statement_registry import finalize_statement
 from .minihelix import G
 
 DEFAULT_MICROBLOCK_SIZE = 8
@@ -254,11 +257,9 @@ def finalize_event(
     if not event.get("is_closed"):
         raise ValueError("event is not fully mined")
 
-    yes_raw = event.get("bets", {}).get("YES", [])
-    no_raw = event.get("bets", {}).get("NO", [])
+    finalize_statement(event)
 
-    valid_yes = [b for b in yes_raw if betting_interface.verify_bet(b)]
-    valid_no = [b for b in no_raw if betting_interface.verify_bet(b)]
+    valid_yes, valid_no = get_bets_for_event(event)
 
     event["bets"]["YES"] = valid_yes
     event["bets"]["NO"] = valid_no
@@ -266,52 +267,43 @@ def finalize_event(
     yes_total = sum(b.get("amount", 0) for b in valid_yes)
     no_total = sum(b.get("amount", 0) for b in valid_no)
 
-    success = yes_total > no_total
-    winners = valid_yes if success else valid_no
-    winner_total = yes_total if success else no_total
+    if yes_total == no_total:
+        coin = int(hashlib.sha256(event["header"]["statement_id"].encode()).hexdigest(), 16) % 2
+        winning_side = "YES" if coin else "NO"
+    else:
+        winning_side = "YES" if yes_total > no_total else "NO"
 
-    pot = yes_total + no_total
+    aligned = valid_yes if winning_side == "YES" else valid_no
+    aligned_total = yes_total if winning_side == "YES" else no_total
+
+    pot = yes_total + no_total + float(event.get("unaligned_funds", 0.0))
     payouts: Dict[str, float] = {}
 
-    originator = event.get("originator_pub") or event.get("header", {}).get("originator_pub")
-    if success and originator:
-        refund = pot * 0.01
-        payouts[originator] = payouts.get(originator, 0.0) + refund
-        pot -= refund
-
-    if winner_total > 0:
-        for bet in winners:
+    if aligned_total == 0:
+        # refund all bets if nobody bet on winning side
+        for bet in valid_yes + valid_no:
             pub = bet.get("pubkey")
             amt = bet.get("amount", 0)
             if pub:
-                payout = pot * (amt / winner_total)
-                payouts[pub] = payouts.get(pub, 0.0) + payout
+                payouts[pub] = payouts.get(pub, 0.0) + amt
+        pot = 0.0
+    else:
+        for bet in aligned:
+            pub = bet.get("pubkey")
+            amt = bet.get("amount", 0)
+            if pub:
+                share = pot * (amt / aligned_total)
+                payouts[pub] = payouts.get(pub, 0.0) + share
 
     # Reward the miner based on compression statistics
     miner_reward = compute_reward(event)
     if node_id:
         payouts[node_id] = payouts.get(node_id, 0.0) + miner_reward
 
-    # Simulated unaligned payout to early miners
-    unaligned_total = float(event.get("unaligned_funds", 0.0))
-    unaligned_payouts: Dict[str, float] = {}
-    if unaligned_total > 0:
-        miner_counts: Dict[str, int] = {}
-        for m in event.get("refund_miners", []):
-            if m:
-                miner_counts[m] = miner_counts.get(m, 0) + 1
-        total_count = sum(miner_counts.values())
-        if total_count:
-            for miner, count in miner_counts.items():
-                share = unaligned_total * (count / total_count)
-                unaligned_payouts[miner] = share
-                payouts[miner] = payouts.get(miner, 0.0) + share
-                print(f"Unaligned payout: {miner} receives {share}")
-    event["unaligned_payouts"] = unaligned_payouts
 
     event["payouts"] = payouts
     event["payout_summary"] = {
-        "winning_side": "YES" if success else "NO",
+        "winning_side": winning_side,
         "yes_total": yes_total,
         "no_total": no_total,
         "total_stake": yes_total + no_total,
