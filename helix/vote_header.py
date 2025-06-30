@@ -1,37 +1,70 @@
+"""Binary encoder for finalized event vote counts."""
+
+from __future__ import annotations
+from typing import Tuple
+
 VOTE_SCALE = 100
 
 
-def encode_vote_header(yes: float, no: float) -> bytes:
-    """Encode YES and NO vote amounts into a variable-length header."""
-    yes_int = round(yes * VOTE_SCALE)
-    no_int = round(no * VOTE_SCALE)
-    if not (0 <= yes_int <= 0xFFFFFFFF):
-        raise ValueError("YES value out of range")
-    if not (0 <= no_int <= 0xFFFFFFFF):
-        raise ValueError("NO value out of range")
-    yes_len = max(1, (yes_int.bit_length() + 7) // 8)
-    no_len = max(1, (no_int.bit_length() + 7) // 8)
-    return (
-        bytes([yes_len, no_len])
-        + yes_int.to_bytes(yes_len, "big")
-        + no_int.to_bytes(no_len, "big")
-    )
+def _encode_value(value: int) -> tuple[int, int, int]:
+    """Return ``(prefix, bits, bit_length)`` for ``value``."""
+    bit_len = max(value.bit_length(), 1)
+    if bit_len > 32:
+        raise ValueError("value too large to encode")
+    prefix = bit_len - 1
+    return prefix, value, bit_len
 
 
-def decode_vote_header(data: bytes) -> tuple[float, float]:
-    """Decode YES and NO vote amounts from a header created by ``encode_vote_header``."""
-    if len(data) < 2:
-        raise ValueError("header too short")
-    yes_len = data[0]
-    no_len = data[1]
-    if yes_len == 0 or no_len == 0:
-        raise ValueError("invalid lengths")
-    expect_len = 2 + yes_len + no_len
-    if len(data) < expect_len:
-        raise ValueError("header truncated")
-    yes_int = int.from_bytes(data[2 : 2 + yes_len], "big")
-    no_int = int.from_bytes(data[2 + yes_len : expect_len], "big")
-    return yes_int / VOTE_SCALE, no_int / VOTE_SCALE
+def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
+    """Encode YES and NO votes into a compact binary header.
+
+    Votes are provided as HLX token amounts and are stored in 0.01 HLX units.
+    The returned bytes contain two length-prefixed integers as described in the
+    module documentation.
+    """
+    yes_int = int(round(yes_votes * VOTE_SCALE))
+    no_int = int(round(no_votes * VOTE_SCALE))
+
+    yes_prefix, yes_bits, yes_len = _encode_value(yes_int)
+    no_prefix, no_bits, no_len = _encode_value(no_int)
+
+    total_bits = 5 + yes_len + 5 + no_len
+
+    value = 0
+    value = (value << 5) | yes_prefix
+    value = (value << yes_len) | yes_bits
+    value = (value << 5) | no_prefix
+    value = (value << no_len) | no_bits
+
+    byte_len = (total_bits + 7) // 8
+    padding = byte_len * 8 - total_bits
+    value <<= padding
+    return value.to_bytes(byte_len, "big")
+
+
+def decode_vote_header(data: bytes) -> Tuple[float, float]:
+    """Decode vote header produced by :func:`encode_vote_header`."""
+    total_bits = len(data) * 8
+    value = int.from_bytes(data, "big")
+
+    index = 0
+
+    def take(n: int) -> int:
+        nonlocal index
+        shift = total_bits - index - n
+        part = (value >> shift) & ((1 << n) - 1)
+        index += n
+        return part
+
+    yes_prefix = take(5)
+    yes_len = yes_prefix + 1
+    yes_val = take(yes_len)
+
+    no_prefix = take(5)
+    no_len = no_prefix + 1
+    no_val = take(no_len)
+
+    return yes_val / VOTE_SCALE, no_val / VOTE_SCALE
 
 
 __all__ = ["encode_vote_header", "decode_vote_header"]

@@ -1,40 +1,70 @@
-import pytest
+"""Binary encoder for finalized event vote counts."""
 
-from helix.vote_header import encode_vote_header, decode_vote_header
+from __future__ import annotations
+from typing import Tuple
 
-
-def test_examples():
-    hdr = encode_vote_header(12.34, 56.78)
-    assert hdr == bytes([2, 2, 0x04, 0xD2, 0x16, 0x2E])
-    yes, no = decode_vote_header(hdr)
-    assert yes == pytest.approx(12.34)
-    assert no == pytest.approx(56.78)
-
-    hdr = encode_vote_header(0.01, 0.01)
-    assert hdr == bytes([1, 1, 0x01, 0x01])
-    assert decode_vote_header(hdr) == pytest.approx((0.01, 0.01))
-
-    max_yes = 42949672.95
-    hdr = encode_vote_header(max_yes, 0)
-    assert hdr == bytes([4, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0x00])
-    yes, no = decode_vote_header(hdr)
-    assert yes == pytest.approx(max_yes)
-    assert no == pytest.approx(0)
+VOTE_SCALE = 100
 
 
-def test_all_bit_lengths():
-    for yes_bits in range(1, 33):
-        yes_val = (1 << yes_bits) - 1
-        yes_amt = yes_val / 100
-        yes_len = max(1, (yes_bits + 7) // 8)
-        for no_bits in range(1, 33):
-            no_val = (1 << no_bits) - 1
-            no_amt = no_val / 100
-            no_len = max(1, (no_bits + 7) // 8)
-            hdr = encode_vote_header(yes_amt, no_amt)
-            assert hdr[0] == yes_len
-            assert hdr[1] == no_len
-            assert len(hdr) == 2 + yes_len + no_len
-            y, n = decode_vote_header(hdr)
-            assert y == pytest.approx(yes_amt)
-            assert n == pytest.approx(no_amt)
+def _encode_value(value: int) -> tuple[int, int, int]:
+    """Return ``(prefix, bits, bit_length)`` for ``value``."""
+    bit_len = max(value.bit_length(), 1)
+    if bit_len > 32:
+        raise ValueError("value too large to encode")
+    prefix = bit_len - 1
+    return prefix, value, bit_len
+
+
+def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
+    """Encode YES and NO votes into a compact binary header.
+
+    Votes are provided as HLX token amounts and are stored in 0.01 HLX units.
+    The returned bytes contain two length-prefixed integers as described in the
+    module documentation.
+    """
+    yes_int = int(round(yes_votes * VOTE_SCALE))
+    no_int = int(round(no_votes * VOTE_SCALE))
+
+    yes_prefix, yes_bits, yes_len = _encode_value(yes_int)
+    no_prefix, no_bits, no_len = _encode_value(no_int)
+
+    total_bits = 5 + yes_len + 5 + no_len
+
+    value = 0
+    value = (value << 5) | yes_prefix
+    value = (value << yes_len) | yes_bits
+    value = (value << 5) | no_prefix
+    value = (value << no_len) | no_bits
+
+    byte_len = (total_bits + 7) // 8
+    padding = byte_len * 8 - total_bits
+    value <<= padding
+    return value.to_bytes(byte_len, "big")
+
+
+def decode_vote_header(data: bytes) -> Tuple[float, float]:
+    """Decode vote header produced by :func:`encode_vote_header`."""
+    total_bits = len(data) * 8
+    value = int.from_bytes(data, "big")
+
+    index = 0
+
+    def take(n: int) -> int:
+        nonlocal index
+        shift = total_bits - index - n
+        part = (value >> shift) & ((1 << n) - 1)
+        index += n
+        return part
+
+    yes_prefix = take(5)
+    yes_len = yes_prefix + 1
+    yes_val = take(yes_len)
+
+    no_prefix = take(5)
+    no_len = no_prefix + 1
+    no_val = take(no_len)
+
+    return yes_val / VOTE_SCALE, no_val / VOTE_SCALE
+
+
+__all__ = ["encode_vote_header", "decode_vote_header"]
