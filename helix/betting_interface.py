@@ -7,6 +7,8 @@ from typing import Any, Dict
 
 from .signature_utils import load_keys, sign_data, verify_signature
 
+from typing import Dict, Any, List, Tuple
+
 
 def submit_bet(event_id: str, choice: str, amount: int, keyfile: str) -> Dict[str, Any]:
     """Return a signed bet for ``event_id`` using keys from ``keyfile``."""
@@ -51,6 +53,17 @@ def record_bet(event: Dict[str, Any], bet: Dict[str, Any]) -> None:
     event["bets"][choice].append(bet)
 
 
+def get_bets_for_event(event: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Return verified YES and NO bets for ``event``."""
+    yes_raw = event.get("bets", {}).get("YES", [])
+    no_raw = event.get("bets", {}).get("NO", [])
+
+    valid_yes = [b for b in yes_raw if verify_bet(b)]
+    valid_no = [b for b in no_raw if verify_bet(b)]
+
+    return valid_yes, valid_no
+
+
 def main() -> None:
     from .event_manager import create_event
     from .signature_utils import generate_keypair, save_keys
@@ -75,6 +88,7 @@ __all__ = [
     "submit_bet",
     "verify_bet",
     "record_bet",
+    "get_bets_for_event",
 ]
 
 
