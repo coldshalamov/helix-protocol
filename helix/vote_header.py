@@ -31,9 +31,13 @@ def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
     total_bits = 5 + yes_len + 5 + no_len
 
     value = 0
+    # YES prefix
     value = (value << 5) | yes_prefix
+    # YES value
     value = (value << yes_len) | yes_bits
+    # NO prefix
     value = (value << 5) | no_prefix
+    # NO value
     value = (value << no_len) | no_bits
 
     byte_len = (total_bits + 7) // 8

@@ -1,7 +1,8 @@
-"""Binary encoder for finalized event vote counts."""
+"""Binary encoder for finalized event vote counts with tests."""
 
 from __future__ import annotations
 from typing import Tuple
+import pytest
 
 VOTE_SCALE = 100
 
@@ -65,6 +66,22 @@ def decode_vote_header(data: bytes) -> Tuple[float, float]:
     no_val = take(no_len)
 
     return yes_val / VOTE_SCALE, no_val / VOTE_SCALE
+
+
+# ✅ Unit test
+
+def test_vote_header_roundtrip():
+    for yes, no in [
+        (0.01, 0.01),
+        (1.23, 4.56),
+        (123.45, 678.9),
+        (0.0, 100.0),
+        (42949672.95, 0.0),
+    ]:
+        encoded = encode_vote_header(yes, no)
+        decoded_yes, decoded_no = decode_vote_header(encoded)
+        assert round(decoded_yes, 2) == round(yes, 2)
+        assert round(decoded_no, 2) == round(no, 2)
 
 
 __all__ = ["encode_vote_header", "decode_vote_header"]
