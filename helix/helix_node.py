@@ -293,6 +293,35 @@ class HelixNode(GossipNode):
         self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
         return payouts
 
+    def start_event_auto_finalizer(self) -> None:
+        """Launch a background thread that finalizes and resolves events."""
+
+        def _auto_loop() -> None:
+            while True:
+                print("Auto-finalizer: checking events")
+                for evt_id, event in list(self.events.items()):
+                    if not event.get("is_closed"):
+                        continue
+                    if event.get("payouts"):
+                        continue
+                    print(f"Auto-finalizer: event {evt_id} completed")
+                    try:
+                        self.finalize_event(event)
+                        print(f"Auto-finalizer: finalized {evt_id}")
+                    except Exception as exc:  # pragma: no cover - logging only
+                        print(f"Auto-finalizer: failed to finalize {evt_id}: {exc}")
+                        continue
+                    try:
+                        from . import betting_interface
+
+                        print(f"Auto-finalizer: resolving bets for {evt_id}")
+                        betting_interface.resolve_bets(evt_id)
+                    except Exception as exc:  # pragma: no cover - logging only
+                        print(f"Auto-finalizer: bet resolution failed for {evt_id}: {exc}")
+                time.sleep(2.0)
+
+        threading.Thread(target=_auto_loop, daemon=True).start()
+
     def _handle_message(self, message: Dict[str, Any]) -> None:
         mtype = message.get("type")
         if mtype == GossipMessageType.NEW_STATEMENT:
