@@ -75,12 +75,9 @@ def resolve_payouts(
             bonus = (amt / winning_total) * pot_share if pot_share else 0.0
             payouts[pub] = payouts.get(pub, 0.0) + amt + bonus
 
-    # Update ledger balances
     from . import ledger
 
     balances = ledger.load_balances(balances_file)
-
-    # Apply any mining results recorded on the event
     apply_mining_results(event, balances)
 
     for acct, amount in payouts.items():
