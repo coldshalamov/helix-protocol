@@ -12,6 +12,10 @@ def _event_to_dict(event: dict) -> dict:
     data["microblocks"] = [b.hex() for b in event.get("microblocks", [])]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
+    if isinstance(data.get("header", {}).get("merkle_root"), bytes):
+        data["header"]["merkle_root"] = data["header"]["merkle_root"].hex()
+    if "merkle_tree" in data:
+        data["merkle_tree"] = [[h.hex() for h in level] for level in data["merkle_tree"]]
     return data
 
 
