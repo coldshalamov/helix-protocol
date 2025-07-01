@@ -58,6 +58,7 @@ class LocalGossipNetwork:
             "EVENT_FINALIZED",
             "FINALIZED",
             "FINALIZED_BLOCK",
+            "finalized_block",
         }
         if log:
             print(f"{sender_id} broadcasting {msg_type}")
@@ -145,6 +146,14 @@ class GossipNode:
     def broadcast_block(self, block: Dict[str, Any]) -> None:
         """Broadcast a finalized block to peers."""
         self.send_message({"type": "FINALIZED_BLOCK", "block": block})
+
+    def broadcast_finalized_block(self, event_id: str, block_header: Dict[str, Any]) -> None:
+        """Broadcast a finalized block header for ``event_id``."""
+        self.send_message({
+            "type": "finalized_block",
+            "event_id": event_id,
+            "block_header": block_header,
+        })
 
     def _validate_block(self, block: Dict[str, Any]) -> bool:
         """Return ``True`` if ``block`` correctly links to local chain."""

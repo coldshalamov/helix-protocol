@@ -38,6 +38,7 @@ class GossipMessageType:
     MINED_MICROBLOCK = "MINED_MICROBLOCK"
     FINALIZED = "FINALIZED"
     FINALIZED_BLOCK = "FINALIZED_BLOCK"
+    FINALIZED_BLOCK_HEADER = "finalized_block"
     CHAIN_TIP = "CHAIN_TIP"
     CHAIN_REQUEST = "CHAIN_REQUEST"
     CHAIN_RESPONSE = "CHAIN_RESPONSE"
@@ -317,12 +318,25 @@ class HelixNode(GossipNode):
         self.save_state()
 
     def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
+        before = bc.load_chain(str(self.chain_file))
         payouts = event_manager.finalize_event(
             event,
             node_id=self.node_id,
             chain_file=str(self.chain_file),
             balances_file=str(self.balances_file),
         )
+        chain_after = bc.load_chain(str(self.chain_file))
+        if len(chain_after) > len(before):
+            block_header = chain_after[-1]
+            self.blockchain = chain_after
+            evt_id = event["header"]["statement_id"]
+            self.send_message(
+                {
+                    "type": GossipMessageType.FINALIZED_BLOCK_HEADER,
+                    "event_id": evt_id,
+                    "block_header": block_header,
+                }
+            )
         self.balances = load_balances(str(self.balances_file))
         self.save_state()
         self.send_message({"type": GossipMessageType.FINALIZED, "event": event})
@@ -399,6 +413,17 @@ class HelixNode(GossipNode):
         elif mtype == GossipMessageType.FINALIZED_BLOCK:
             block = message.get("block")
             if block and self.apply_block(block):
+                self.forward_message(message)
+        elif mtype == GossipMessageType.FINALIZED_BLOCK_HEADER:
+            evt_id = message.get("event_id")
+            block = message.get("block_header")
+            if not evt_id or not isinstance(block, dict):
+                return
+            if evt_id not in self.events:
+                # unknown event; propagate request if fetch mechanism exists
+                self.forward_message(message)
+                return
+            if self.apply_block(block):
                 self.forward_message(message)
 
     def _message_loop(self) -> None:
