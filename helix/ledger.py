@@ -24,7 +24,8 @@ def save_balances(balances: Dict[str, float], path: str) -> None:
 def get_total_supply(path: str = "supply.json") -> float:
     """Return total HLX supply stored in ``path``.
 
-    If the file does not exist, return ``0.0``.
+    The file is expected to contain a JSON object with a ``"total"`` field.
+    If the file does not exist, ``0.0`` is returned.
     """
     file = Path(path)
     if not file.exists():
@@ -41,7 +42,7 @@ def update_total_supply(delta: float, path: str = "supply.json") -> None:
     total = get_total_supply(path) + float(delta)
     file = Path(path)
     with open(file, "w", encoding="utf-8") as f:
-        json.dump(total, f)
+        json.dump({"total": total}, f, indent=2)
 
 
 def compression_stats(events_dir: str) -> Tuple[int, float]:
@@ -106,23 +107,6 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
             refund = refunds[idx] if idx < len(refunds) else 0.0
             balances[old_miner] = balances.get(old_miner, 0.0) + refund
 
-
-def get_total_supply(events_dir: str) -> float:
-    """Return total HLX issued across all events in ``events_dir``."""
-    path = Path(events_dir)
-    if not path.exists():
-        return 0.0
-
-    supply = 0.0
-    for event_file in path.glob("*.json"):
-        event = event_manager.load_event(str(event_file))
-        rewards = event.get("rewards", [])
-        refunds = event.get("refunds", [])
-        supply += sum(rewards) - sum(refunds)
-
-    return supply
-
-
 __all__ = [
     "load_balances",
     "save_balances",
@@ -130,5 +114,4 @@ __all__ = [
     "update_total_supply",
     "compression_stats",
     "apply_mining_results",
-    "get_total_supply",
 ]
