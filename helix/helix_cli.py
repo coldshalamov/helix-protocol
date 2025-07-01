@@ -18,7 +18,6 @@ from . import (
     nested_miner,
     signature_utils,
     betting_interface,
-    helix_node,
 )
 from .ledger import load_balances, save_balances, get_total_supply, compression_stats
 from .gossip import GossipNode, LocalGossipNetwork
@@ -221,6 +220,8 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     if not path.exists():
         raise SystemExit("Event not found")
     event = event_manager.load_event(str(path))
+    from . import helix_node
+
     node = helix_node.HelixNode(
         events_dir="data/events",
         balances_file="data/balances.json",
@@ -249,6 +250,8 @@ def cmd_balance(args: argparse.Namespace) -> None:
 
 def cmd_sync(args: argparse.Namespace) -> None:
     """Run a live node that syncs and mines blocks."""
+
+    from . import helix_node
 
     node = helix_node.HelixNode(
         events_dir="data/events",
@@ -430,7 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("sync", help="Run a syncing node").set_defaults(func=cmd_sync)
 
-    sub.add_parser("doctor", help="Verify setup").set_defaults(func=cmd_doctor)
+    sub.add_parser("verify-setup", help="Verify setup").set_defaults(func=cmd_doctor)
 
     return parser
 
@@ -439,6 +442,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)
+
+
+if __name__ == "__main__":
+    main()
 
 
 __all__ = [
