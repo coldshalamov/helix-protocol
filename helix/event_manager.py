@@ -1,6 +1,26 @@
+import base64
+import hashlib
+import json
+import math
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+from datetime import datetime
+from nacl import signing
+
+from .config import GENESIS_HASH
+from .signature_utils import verify_signature, sign_data, generate_keypair
+from .merkle_utils import build_merkle_tree
+from . import nested_miner, betting_interface
+from .betting_interface import get_bets_for_event
+from .ledger import apply_mining_results
+from .statement_registry import finalize_statement
+from .minihelix import G
+
+DEFAULT_MICROBLOCK_SIZE = 8
+FINAL_BLOCK_PADDING_BYTE = b"\x00"
+
+# ... [All other unchanged code from event_manager.py above remains intact] ...
 
 def resolve_payouts(
     event_id: str,
@@ -24,7 +44,6 @@ def resolve_payouts(
     dict
         Mapping of public keys to payout amounts applied to the ledger.
     """
-
     if winning_side not in {"YES", "NO"}:
         raise ValueError("winning_side must be 'YES' or 'NO'")
 
