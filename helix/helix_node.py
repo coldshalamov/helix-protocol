@@ -168,6 +168,41 @@ def _write_chain(chain: List[Dict[str, Any]], path: str) -> None:
             fh.write(json.dumps(blk) + "\n")
 
 
+def resolve_fork(old_chain: List[Dict[str, Any]], new_chain: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return the preferred chain between ``old_chain`` and ``new_chain``.
+
+    The preferred chain is determined as follows:
+
+    - Choose ``new_chain`` if it contains more blocks than ``old_chain``.
+    - If both have the same number of blocks, pick the one whose last
+      ``block_id`` is lexicographically greater.
+
+    Parameters
+    ----------
+    old_chain:
+        The current local chain.
+    new_chain:
+        Chain received from a peer.
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        The chain to adopt. No chain re-organization happens here, the caller
+        is responsible for adopting the returned chain if desired.
+    """
+
+    if len(new_chain) > len(old_chain):
+        return new_chain
+
+    if len(new_chain) == len(old_chain) and new_chain and old_chain:
+        new_last = new_chain[-1].get("block_id", "")
+        old_last = old_chain[-1].get("block_id", "")
+        if str(new_last) > str(old_last):
+            return new_chain
+
+    return old_chain
+
+
 class HelixNode(GossipNode):
     def __init__(
         self,
@@ -270,7 +305,7 @@ class HelixNode(GossipNode):
     def _resolve_forks(self) -> None:
         if not self.fork_chain:
             return
-        chosen = bc.resolve_fork(self.blockchain, self.fork_chain, events_dir=str(self.events_dir))
+        chosen = resolve_fork(self.blockchain, self.fork_chain)
         if chosen is self.fork_chain:
             self._adopt_chain(chosen)
         self.fork_chain = None
