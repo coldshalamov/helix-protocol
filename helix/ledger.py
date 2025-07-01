@@ -30,7 +30,10 @@ def get_total_supply(path: str = "supply.json") -> float:
     if not file.exists():
         return 0.0
     with open(file, "r", encoding="utf-8") as f:
-        return float(json.load(f))
+        data = json.load(f)
+    if isinstance(data, dict):
+        return float(data.get("total", 0.0))
+    return float(data)
 
 
 def update_total_supply(delta: float, path: str = "supply.json") -> None:

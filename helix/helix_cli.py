@@ -332,6 +332,34 @@ def cmd_verify_statement(args: argparse.Namespace) -> None:
         print("Verification failed")
 
 
+def cmd_payouts(args: argparse.Namespace) -> None:
+    """Resolve betting payouts for a finalized event."""
+
+    from .event_manager import resolve_payouts
+
+    winning_side = args.winning_side
+    if winning_side not in {"YES", "NO"}:
+        raise SystemExit("winning_side must be YES or NO")
+
+    evt_path = Path("data/events") / f"{args.event_id}.json"
+    if not evt_path.exists():
+        raise SystemExit("Event not found")
+    event = event_manager.load_event(str(evt_path))
+
+    yes_bets, no_bets = event_manager.get_bets_for_event(event)
+    yes_total = sum(b.get("amount", 0) for b in yes_bets)
+    no_total = sum(b.get("amount", 0) for b in no_bets)
+    unaligned_total = float(event.get("unaligned_funds", 0.0))
+    losing_total = no_total if winning_side == "YES" else yes_total
+    burn_amount = losing_total + unaligned_total
+
+    payouts = resolve_payouts(args.event_id, winning_side)
+
+    print(f"Addresses paid: {len(payouts)}")
+    print(f"Total distributed: {sum(payouts.values()):.4f}")
+    print(f"HLX burned: {burn_amount:.4f}")
+
+
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
 
@@ -422,6 +450,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_final.add_argument("statement_id", help="Statement identifier")
     p_final.set_defaults(func=cmd_finalize)
 
+    p_payouts = sub.add_parser("payouts", help="Distribute event payouts")
+    p_payouts.add_argument("event_id", help="Event identifier")
+    p_payouts.add_argument("winning_side", help="YES or NO")
+    p_payouts.set_defaults(func=cmd_payouts)
+
     p_tip = sub.add_parser("view", help="Show blockchain tip")
     p_tip.set_defaults(func=cmd_view_tip)
 
@@ -456,6 +489,7 @@ __all__ = [
     "cmd_submit",
     "cmd_mine",
     "cmd_finalize",
+    "cmd_payouts",
     "cmd_view_tip",
     "cmd_balance",
     "cmd_sync",
