@@ -85,6 +85,23 @@ python setup_genesis.py
 
 This mines the genesis microblocks and writes the results into the `data/` directory.
 
+## ✅ Running Tests & Coverage
+
+Install the test dependencies and execute the suite with coverage:
+
+```bash
+python3 -m pip install -r requirements.txt
+./run_tests.sh
+```
+
+Set `COV_FAIL_UNDER` to fail the run if coverage drops below a threshold (in percent):
+
+```bash
+COV_FAIL_UNDER=85 ./run_tests.sh
+```
+
+This runs `pytest --cov=helix tests/` and prints a coverage report to stdout.
+
 ## ❓ Troubleshooting
 
 - **`ModuleNotFoundError: No module named 'nacl'`**

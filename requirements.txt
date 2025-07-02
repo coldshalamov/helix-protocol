@@ -3,3 +3,5 @@ pynacl
 websockets
 
 Flask
+pytest
+pytest-cov

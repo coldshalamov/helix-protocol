@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -38,8 +39,11 @@ def reset_test_dirs() -> None:
 
 
 def run_pytest() -> int:
-    """Run pytest and print a simple summary."""
-    proc = subprocess.run(["pytest", "-vv"], capture_output=True, text=True)
+    """Run pytest with coverage and print a simple summary."""
+    cmd = ["pytest", "-vv", "--cov=helix", "tests/"]
+    if os.getenv("COV_FAIL_UNDER"):
+        cmd.append(f"--cov-fail-under={os.environ['COV_FAIL_UNDER']}")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
     print(proc.stdout)
     if proc.stderr:
         print(proc.stderr, file=sys.stderr)
