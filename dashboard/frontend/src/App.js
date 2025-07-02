@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import './index.css';
+import EventList from './components/EventList';
 
 const Navbar = ({ totalSupply }) => (
   <nav className="bg-gray-800 p-4 text-white flex justify-between items-center">
     <div className="space-x-4">
       <Link to="/" className="hover:underline">Home</Link>
+      <Link to="/events" className="hover:underline">Events</Link>
       <Link to="/wallet/1" className="hover:underline">Wallet</Link>
     </div>
     <div>
@@ -157,6 +159,7 @@ const App = () => {
       <Navbar totalSupply={supply} />
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/events" element={<EventList />} />
         <Route path="/statement/:id" element={<Statement />} />
         <Route path="/wallet/:walletId" element={<Wallet />} />
       </Routes>

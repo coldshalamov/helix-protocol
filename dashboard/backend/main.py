@@ -8,8 +8,12 @@ from pydantic import BaseModel
 
 try:
     from helix.ledger import load_balances, get_total_supply
+    from helix.event_manager import load_event
+    from helix.utils import compression_ratio
 except Exception:  # pragma: no cover - optional fallback
     from ledger import load_balances, get_total_supply  # type: ignore
+    from event_manager import load_event  # type: ignore
+    from utils.metrics import compression_ratio  # type: ignore
 
 try:
     from helix.event_manager import submit_statement
@@ -49,6 +53,32 @@ async def list_statements() -> list[dict]:
             }
         )
     return statements
+
+
+@app.get("/api/events")
+async def list_events() -> list[dict]:
+    """Return all finalized events."""
+    if not EVENTS_DIR.exists():
+        return []
+
+    events: list[dict] = []
+    for path in sorted(EVENTS_DIR.glob("*.json")):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if not event.get("is_closed") and not event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        evt_id = header.get("statement_id", path.stem)
+        events.append(
+            {
+                "id": evt_id,
+                "statement": event.get("statement"),
+                "compression": compression_ratio(event),
+            }
+        )
+    return events
 
 
 @app.get("/api/statement/{statement_id}")
