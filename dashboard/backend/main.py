@@ -61,6 +61,60 @@ async def list_statements(limit: int = 10) -> list[dict]:
     return statements
 
 
+@app.get("/api/statements/history")
+async def list_statement_history(limit: int = 10) -> list[dict]:
+    """Return finalized statement history sorted from newest to oldest."""
+    if not FINALIZED_FILE.exists() or limit <= 0:
+        return []
+
+    entries: list[dict] = []
+    for line in FINALIZED_FILE.read_text().splitlines():
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        if "timestamp" not in item:
+            continue
+        entries.append(item)
+
+    entries.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
+    results: list[dict] = []
+    for entry in entries[:limit]:
+        sid = entry.get("statement_id")
+        statement = entry.get("statement")
+        seeds = entry.get("seeds")
+        compression = entry.get("compression_ratio")
+        path = EVENTS_DIR / f"{sid}.json"
+        if path.exists():
+            try:
+                event = load_event(str(path))
+                statement = event.get("statement", statement)
+                seeds = event.get("seeds", seeds)
+                seeds = [
+                    s.hex() if isinstance(s, (bytes, bytearray)) else s
+                    for s in seeds
+                ]
+                compression = compression_ratio(event)
+            except Exception:
+                pass
+
+        if isinstance(seeds, list):
+            seeds = [s.hex() if isinstance(s, (bytes, bytearray)) else s for s in seeds]
+
+        results.append(
+            {
+                "statement_id": sid,
+                "finalized": True,
+                "timestamp": entry.get("timestamp"),
+                "statement": statement,
+                "seeds": seeds,
+                "compression_ratio": compression,
+            }
+        )
+
+    return results
+
+
 @app.get("/api/events")
 async def list_events() -> list[dict]:
     """Return all finalized events."""
