@@ -7,7 +7,7 @@ from helix import miner
 
 def test_generate_microblock():
     seed = b"abc"
-    expected = hashlib.sha256(seed + len(seed).to_bytes(4, "big")).digest()
+    expected = hashlib.sha256(seed + b"\x00").digest()[:8]
     assert miner.generate_microblock(seed) == expected
 
 
