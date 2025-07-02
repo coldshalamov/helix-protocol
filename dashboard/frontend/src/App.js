@@ -3,10 +3,15 @@ import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-r
 import axios from 'axios';
 import './index.css';
 
-const Navbar = () => (
-  <nav className="bg-gray-800 p-4 text-white flex space-x-4">
-    <Link to="/" className="hover:underline">Home</Link>
-    <Link to="/wallet/1" className="hover:underline">Wallet</Link>
+const Navbar = ({ totalSupply }) => (
+  <nav className="bg-gray-800 p-4 text-white flex justify-between items-center">
+    <div className="space-x-4">
+      <Link to="/" className="hover:underline">Home</Link>
+      <Link to="/wallet/1" className="hover:underline">Wallet</Link>
+    </div>
+    <div>
+      Total HLX: {totalSupply ?? '123.45'}
+    </div>
   </nav>
 );
 
@@ -100,15 +105,25 @@ const Wallet = () => {
   );
 };
 
-const App = () => (
-  <Router>
-    <Navbar />
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/statement/:id" element={<Statement />} />
-      <Route path="/wallet/:walletId" element={<Wallet />} />
-    </Routes>
-  </Router>
-);
+const App = () => {
+  const [supply, setSupply] = useState(null);
+
+  useEffect(() => {
+    axios.get('/api/supply')
+      .then(res => setSupply(res.data.total_supply))
+      .catch(err => console.error(err));
+  }, []);
+
+  return (
+    <Router>
+      <Navbar totalSupply={supply} />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/statement/:id" element={<Statement />} />
+        <Route path="/wallet/:walletId" element={<Wallet />} />
+      </Routes>
+    </Router>
+  );
+};
 
 export default App;
