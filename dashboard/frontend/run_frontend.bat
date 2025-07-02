@@ -1,8 +1,5 @@
 @echo off
-cd /d "%~dp0"
-
-echo [ Installing frontend dependencies... ]
-npm install
-echo [ Launching Helix dashboard... ]
+setlocal
+cd /d %CD%\dashboard\frontend
 npm start
-pause
+endlocal
