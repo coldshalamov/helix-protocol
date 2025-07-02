@@ -8,7 +8,7 @@ from helix import exhaustive_miner
 def test_G_deterministic():
     seed = b"abc"
     N = 4
-    expected = hashlib.sha256(seed + len(seed).to_bytes(1, "big")).digest()[:N]
+    expected = hashlib.sha256(seed + b"\x00").digest()[:N]
     assert mh.G(seed, N) == expected
 
 
