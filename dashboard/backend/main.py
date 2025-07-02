@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import base64
+import math
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from helix import signature_utils
@@ -26,6 +30,13 @@ except Exception:  # pragma: no cover - optional fallback
     from event_manager import submit_statement as submit_event_statement  # type: ignore
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
@@ -85,6 +96,51 @@ async def list_events() -> list[dict]:
             }
         )
     return events
+
+
+@app.get("/api/statements/active_status")
+async def list_active_statements() -> list[dict]:
+    """Return all active (unfinalized) statements sorted newest first."""
+    if not EVENTS_DIR.exists():
+        return []
+
+    entries: list[tuple[float, dict]] = []
+    for path in EVENTS_DIR.glob("*.json"):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        statement = event.get("statement", "")
+        micro_size = int(header.get("microblock_size", 0))
+        block_count = int(header.get("block_count", math.ceil(len(statement) / micro_size))) if micro_size else 0
+        seeds = event.get("seeds", [])
+        mined_blocks = []
+        unmined = []
+        for idx in range(block_count):
+            seed = seeds[idx] if idx < len(seeds) else None
+            if seed is not None:
+                mined_blocks.append({"index": idx, "seed": seed.hex() if isinstance(seed, (bytes, bytearray)) else str(seed)})
+            else:
+                unmined.append(idx)
+        entry = {
+            "statement_id": header.get("statement_id", path.stem),
+            "statement": statement,
+            "header": base64.b64encode(json.dumps(header).encode("utf-8")).decode("ascii"),
+            "microblock_size": micro_size,
+            "microblock_count": block_count,
+            "mined_blocks": mined_blocks,
+            "unmined_blocks": unmined,
+            "submitted_at": int(path.stat().st_mtime),
+            "wallet_id": event.get("originator_pub"),
+            "finalized": False,
+        }
+        entries.append((path.stat().st_mtime, entry))
+
+    entries.sort(key=lambda x: x[0], reverse=True)
+    return [e[1] for e in entries]
 
 
 @app.get("/api/statement/{statement_id}")
