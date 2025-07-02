@@ -2,11 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import './index.css';
+import EventList from './components/EventList';
 
-const Navbar = () => (
-  <nav className="bg-gray-800 p-4 text-white flex space-x-4">
-    <Link to="/" className="hover:underline">Home</Link>
-    <Link to="/wallet/1" className="hover:underline">Wallet</Link>
+const Navbar = ({ totalSupply }) => (
+  <nav className="bg-gray-800 p-4 text-white flex justify-between items-center">
+    <div className="space-x-4">
+      <Link to="/" className="hover:underline">Home</Link>
+      <Link to="/events" className="hover:underline">Events</Link>
+      <Link to="/wallet/1" className="hover:underline">Wallet</Link>
+    </div>
+    <div>
+      Total HLX: {totalSupply ?? '123.45'}
+    </div>
   </nav>
 );
 
@@ -69,6 +76,44 @@ const Statement = () => {
       <div>Compressed Size: {data.compressed_size}</div>
       <pre className="bg-gray-100 p-2 whitespace-pre-wrap">{data.reconstructed}</pre>
       <div>
+        <h2 className="text-xl font-semibold mt-4">Microblocks</h2>
+        <table className="min-w-full divide-y divide-gray-200 mt-2">
+          <thead>
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Index</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Original Bytes</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mined Seed</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Seed Length</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Miner Wallet</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {data.microblocks && data.microblocks.map((block, idx) => {
+              const seeds = data.seeds || [];
+              const miners = data.miners || [];
+              const seed = seeds[idx];
+              const seedHex = Array.isArray(seed)
+                ? seed.map((b) => b.toString(16).padStart(2, "0")).join("")
+                : seed || "";
+              const seedLength = seed
+                ? Array.isArray(seed)
+                  ? seed.length
+                  : Math.floor(seed.length / 2)
+                : 0;
+              return (
+                <tr key={idx} className="hover:bg-gray-50">
+                  <td className="px-4 py-2 whitespace-nowrap">{idx}</td>
+                  <td className="px-4 py-2 whitespace-nowrap font-mono">{block}</td>
+                  <td className="px-4 py-2 whitespace-nowrap font-mono">{seedHex}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{seedLength}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{miners[idx] || ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div>
         <h2 className="text-xl font-semibold">Miners</h2>
         <ul className="list-disc pl-5">
           {data.miners && data.miners.map((miner, idx) => (
@@ -100,15 +145,26 @@ const Wallet = () => {
   );
 };
 
-const App = () => (
-  <Router>
-    <Navbar />
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/statement/:id" element={<Statement />} />
-      <Route path="/wallet/:walletId" element={<Wallet />} />
-    </Routes>
-  </Router>
-);
+const App = () => {
+  const [supply, setSupply] = useState(null);
+
+  useEffect(() => {
+    axios.get('/api/supply')
+      .then(res => setSupply(res.data.total_supply))
+      .catch(err => console.error(err));
+  }, []);
+
+  return (
+    <Router>
+      <Navbar totalSupply={supply} />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/events" element={<EventList />} />
+        <Route path="/statement/:id" element={<Statement />} />
+        <Route path="/wallet/:walletId" element={<Wallet />} />
+      </Routes>
+    </Router>
+  );
+};
 
 export default App;

@@ -6,12 +6,24 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from helix import signature_utils
+from helix.event_manager import (
+    create_event,
+    save_event,
+    load_event,
+    list_events as list_saved_events,
+)
+from helix.utils import compression_ratio
+
 try:
     from helix.ledger import load_balances, get_total_supply
 except Exception:  # pragma: no cover - optional fallback
     from ledger import load_balances, get_total_supply  # type: ignore
 
-from helix.event_manager import list_events, submit_statement
+try:
+    from helix.event_manager import submit_statement as submit_event_statement
+except Exception:  # pragma: no cover - optional fallback
+    from event_manager import submit_statement as submit_event_statement  # type: ignore
 
 app = FastAPI()
 
@@ -19,26 +31,21 @@ EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
 
 
-class StatementSubmission(BaseModel):
+class SubmitRequest(BaseModel):
     statement: str
     wallet_id: str
-
-
-@app.get("/api/events")
-def get_events() -> list[dict]:
-    """Return all stored events."""
-    return list_events()
+    microblock_size: int = 3
 
 
 @app.get("/api/statements")
-async def list_statements() -> list[dict]:
-    """Return summary of the last 10 finalized statements."""
-    if not FINALIZED_FILE.exists():
+async def list_statements(limit: int = 10) -> list[dict]:
+    """Return summary of the latest finalized statements."""
+    if not FINALIZED_FILE.exists() or limit <= 0:
         return []
 
-    lines = FINALIZED_FILE.read_text().splitlines()
+    lines = FINALIZED_FILE.read_text().splitlines()[-limit:]
     statements: list[dict] = []
-    for line in lines[-10:]:
+    for line in lines:
         try:
             entry = json.loads(line)
         except Exception:
@@ -54,6 +61,32 @@ async def list_statements() -> list[dict]:
     return statements
 
 
+@app.get("/api/events")
+async def list_events() -> list[dict]:
+    """Return all finalized events."""
+    if not EVENTS_DIR.exists():
+        return []
+
+    events: list[dict] = []
+    for path in sorted(EVENTS_DIR.glob("*.json")):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if not event.get("is_closed") and not event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        evt_id = header.get("statement_id", path.stem)
+        events.append(
+            {
+                "id": evt_id,
+                "statement": event.get("statement"),
+                "compression": compression_ratio(event),
+            }
+        )
+    return events
+
+
 @app.get("/api/statement/{statement_id}")
 async def get_statement(statement_id: str) -> dict:
     """Return the full event JSON for ``statement_id``."""
@@ -64,6 +97,24 @@ async def get_statement(statement_id: str) -> dict:
         return json.loads(path.read_text())
     except Exception as exc:  # pragma: no cover - invalid file
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/submit")
+async def submit_statement(req: SubmitRequest) -> dict:
+    """Create a new statement event and return its ID."""
+    try:
+        event = create_event(
+            req.statement,
+            microblock_size=req.microblock_size,
+            private_key=signature_utils.load_keys("wallet.json")[1],
+        )
+        save_event(event, str(EVENTS_DIR))
+        return {
+            "event_id": event["header"]["statement_id"],
+            "block_count": event["header"]["block_count"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/balance/{wallet_id}")
@@ -83,14 +134,10 @@ async def total_supply() -> dict:
     return {"total_supply": supply}
 
 
-@app.post("/api/submit")
-async def submit(submission: StatementSubmission) -> dict:
-    """Submit a new statement and return its identifier."""
-    try:
-        statement_id = submit_statement(submission.statement, submission.wallet_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-    return {"statement_id": statement_id}
+@app.get("/api/events/summary")
+def get_events_summary() -> list[dict]:
+    """Return high-level summaries of all saved events."""
+    return list_saved_events("data")
 
 
 if __name__ == "__main__":  # pragma: no cover - manual start
