@@ -116,12 +116,34 @@ class StatementRegistry:
 
 __all__ = ["StatementRegistry", "finalize_statement"]
 
+_FINALIZED: List[Dict[str, Any]] = []
+_FINALIZED_FILE = "finalized_statements.jsonl"
 
-def finalize_statement(event: Dict[str, Any], *, delta_bonus: bool = False) -> str:
-    """Mark ``event`` as finalized and record the delta bonus flag."""
 
-    statement_id = event.get("header", {}).get("statement_id")
-    event["finalized"] = True
-    event["delta_bonus"] = bool(delta_bonus)
+def finalize_statement(
+    statement_id: str,
+    statement: str,
+    previous_hash: str,
+    delta_seconds: float,
+    seeds: List[bytes],
+    miner_ids: List[str],
+) -> str:
+    """Record a finalized statement and persist it."""
+
+    entry = {
+        "statement_id": statement_id,
+        "statement": statement,
+        "previous_hash": previous_hash,
+        "delta_seconds": delta_seconds,
+        "seeds": [s.hex() for s in seeds],
+        "miners": miner_ids,
+    }
+    _FINALIZED.append(entry)
+    try:
+        with open(_FINALIZED_FILE, "a", encoding="utf-8") as fh:
+            json.dump(entry, fh)
+            fh.write("\n")
+    except Exception:  # pragma: no cover - optional persistence errors
+        pass
     return statement_id
 
