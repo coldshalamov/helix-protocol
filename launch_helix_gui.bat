@@ -1,7 +1,10 @@
 @echo off
 setlocal
-echo Starting Helix Backend...
+
+rem Start the backend
 start cmd /k "cd /d %CD% && uvicorn dashboard.backend.main:app --reload --port 8000"
-echo Starting Helix Frontend...
+
+rem Start the frontend
 start cmd /k "cd /d %CD%\dashboard\frontend && npm start"
-exit
+
+endlocal
