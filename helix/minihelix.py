@@ -31,10 +31,11 @@ def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
         raise ValueError("seed must be 255 bytes or fewer")
 
     output = b""
-    i = 0
+    current = hashlib.sha256(seed).digest()
+    output += current
     while len(output) < N:
-        output += hashlib.sha256(seed + bytes([i])).digest()
-        i += 1
+        current = hashlib.sha256(current).digest()
+        output += current
     return output[:N]
 
 

@@ -18,7 +18,7 @@ Unlike legacy blockchains that mint tokens by wasting computation, Helix mints 1
 🧠 **Compression = Proof-of-Work**  
 - All submitted claims are grouped into **microblocks**.  
 - Miners compete to find the **smallest seed** that regenerates the exact block output using a deterministic hash-based function:  
-  `G(s) = (SHA256(s || 0) || SHA256(s || 1) || …)[:N]`
+  `G(s) = (SHA256(s) || SHA256(SHA256(s)) || …)[:N]`
 - The smaller the seed, the more compression—and the more HLX earned.
 
 🧮 **Transparent Incentives**  
