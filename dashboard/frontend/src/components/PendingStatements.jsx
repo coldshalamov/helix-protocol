@@ -17,19 +17,32 @@ const COLORS = [
 function StatementBox({ stmt }) {
   const text = stmt.statement || "";
   const size = stmt.microblock_size || 1;
-  const mined = Array.isArray(stmt.mined_status) ? stmt.mined_status : [];
-  const seeds = Array.isArray(stmt.seeds) ? stmt.seeds : [];
+  const minedMap = new Map();
+  if (Array.isArray(stmt.mined_blocks)) {
+    stmt.mined_blocks.forEach(({ index, seed }) => {
+      minedMap.set(index, seed);
+    });
+  }
   const bets = stmt.bets || {};
-  const yesTotal = bets.YES || bets.TRUE || stmt.total_yes || 0;
-  const noTotal = bets.NO || stmt.total_no || 0;
+  const yesBets = bets.TRUE || bets.YES || [];
+  const noBets = bets.FALSE || bets.NO || [];
+  const yesTotal = Array.isArray(yesBets)
+    ? yesBets.reduce((sum, b) => sum + Number(b.amount || 0), 0)
+    : Number(yesBets || 0);
+  const noTotal = Array.isArray(noBets)
+    ? noBets.reduce((sum, b) => sum + Number(b.amount || 0), 0)
+    : Number(noBets || 0);
 
+  const blockCount = stmt.microblock_count
+    ? stmt.microblock_count
+    : Math.ceil(text.length / size);
   const segments = [];
-  for (let i = 0; i < text.length; i += size) {
-    segments.push(text.slice(i, i + size));
+  for (let i = 0; i < blockCount; i++) {
+    const start = i * size;
+    segments.push(text.slice(start, start + size));
   }
 
-  const minedCount = mined.filter(Boolean).length;
-  const blockCount = segments.length;
+  const minedCount = minedMap.size;
 
   return (
     <div className="border shadow p-4 mb-4">
@@ -47,7 +60,7 @@ function StatementBox({ stmt }) {
         <div className="flex space-x-1 font-mono text-sm">
           {segments.map((seg, i) => {
             const color = COLORS[i % COLORS.length];
-            const cls = mined[i] ? `${color} text-black` : "bg-gray-100";
+            const cls = minedMap.has(i) ? `${color} text-black` : "bg-gray-100";
             return (
               <span key={i} className={`${cls} px-1`}>{seg}</span>
             );
@@ -56,8 +69,8 @@ function StatementBox({ stmt }) {
         <div className="flex space-x-1 mt-1 text-xs">
           {segments.map((_, i) => {
             const color = COLORS[i % COLORS.length];
-            const isMined = mined[i];
-            const seed = seeds[i];
+            const seed = minedMap.get(i);
+            const isMined = seed !== undefined;
             const cls = isMined ? color : "bg-gray-100";
             return (
               <span key={i} className={`${cls} px-1 flex flex-col items-center`}>
