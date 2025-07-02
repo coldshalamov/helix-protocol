@@ -38,16 +38,21 @@ const Navbar = ({ totalSupply }) => (
 
 const Home = () => {
   const [statements, setStatements] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     axios.get("/api/statements?limit=10")
       .then(res => setStatements(res.data))
-      .catch(err => console.error(err));
+      .catch(err => {
+        console.error(err);
+        setError("Failed to load statements.");
+      });
   }, []);
 
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Latest Statements</h1>
+      {error && <div className="text-red-600 mb-2">{error}</div>}
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
@@ -81,13 +86,18 @@ const Home = () => {
 const Statement = () => {
   const { id } = useParams();
   const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     axios.get(`/api/statement/${id}`)
       .then(res => setData(res.data))
-      .catch(err => console.error(err));
+      .catch(err => {
+        console.error(err);
+        setError("Failed to load statement.");
+      });
   }, [id]);
 
+  if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (!data) return <div className="p-4">Loading...</div>;
 
   const compressionPct =
@@ -155,13 +165,18 @@ const Statement = () => {
 const Wallet = () => {
   const { walletId } = useParams();
   const [balance, setBalance] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     axios.get(`/api/balance/${walletId}`)
       .then(res => setBalance(res.data.balance))
-      .catch(err => console.error(err));
+      .catch(err => {
+        console.error(err);
+        setError("Failed to load wallet balance.");
+      });
   }, [walletId]);
 
+  if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (balance === null) return <div className="p-4">Loading...</div>;
 
   return (
@@ -174,16 +189,21 @@ const Wallet = () => {
 
 export default function App() {
   const [supply, setSupply] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     axios.get("/api/supply")
       .then(res => setSupply(res.data.total_supply))
-      .catch(err => console.error(err));
+      .catch(err => {
+        console.error(err);
+        setError("Failed to load total supply.");
+      });
   }, []);
 
   return (
     <Router>
       <Navbar totalSupply={supply} />
+      {error && <div className="p-4 text-red-600">{error}</div>}
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/events" element={<EventList />} />

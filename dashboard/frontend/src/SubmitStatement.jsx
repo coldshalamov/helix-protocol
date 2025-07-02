@@ -19,7 +19,8 @@ export default function SubmitStatement() {
       });
       setResult(res.data);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message);
+      console.error("Submission failed:", err);
+      setError(err.response?.data?.detail || err.message || "Unknown error");
     }
   };
 
@@ -54,12 +55,14 @@ export default function SubmitStatement() {
       </form>
       {result && (
         <div className="mt-4 border p-4 shadow bg-green-50">
-          Event ID: {result.event_id}
+          ✅ <strong>Statement submitted!</strong><br />
+          <div>Event ID: <code>{result.event_id}</code></div>
+          <div>Block Count: {result.block_count}</div>
         </div>
       )}
       {error && (
         <div className="mt-4 border p-4 shadow bg-red-50 text-red-600">
-          {error}
+          ❌ <strong>Error:</strong> {error}
         </div>
       )}
     </div>
