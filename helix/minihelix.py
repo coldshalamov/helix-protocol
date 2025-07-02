@@ -7,10 +7,12 @@ DEFAULT_MICROBLOCK_SIZE = 8
 
 
 def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
-    """Return the first ``N`` bytes of the MiniHelix hash stream for ``seed``."""
-    output = hashlib.sha256(seed).digest()
+    """Return ``N`` bytes generated from ``seed`` using MiniHelix."""
+    output = b""
+    current = hashlib.sha256(seed).digest()
     while len(output) < N:
-        output += hashlib.sha256(output).digest()
+        output += current
+        current = hashlib.sha256(current).digest()
     return output[:N]
 
 
@@ -60,6 +62,11 @@ def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_00
         if candidate == target:
             return seed
     return None
+
+
+def mine_seed(target_block: bytes, max_attempts: int | None = 1_000_000) -> bytes | None:
+    """Compatibility wrapper calling :func:`find_seed`."""
+    return find_seed(target_block, max_seed_len=DEFAULT_MICROBLOCK_SIZE, attempts=max_attempts or 0)
 
 
 __all__ = [
