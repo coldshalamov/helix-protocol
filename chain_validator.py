@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 from helix import minihelix, blockchain, event_manager
-from helix.ledger import load_balances
+from helix.ledger import load_balances, _update_total_supply, log_ledger_event
 
 
 def sha256_hex(data: bytes) -> str:
@@ -90,6 +90,29 @@ def compute_payouts(event: Dict[str, Any], miner: str | None) -> Dict[str, float
                 payouts[m] = payouts.get(m, 0.0) + share
 
     return payouts
+
+
+def validate_and_mint(
+    block: Dict[str, Any],
+    wallet: str,
+    amount: float,
+    reason: str,
+    *,
+    supply_file: str = "supply.json",
+    journal_file: str = "ledger_journal.jsonl",
+) -> None:
+    """Validate ``block`` then mint ``amount`` HLX to ``wallet``.
+
+    The block hash is verified and a ledger event is recorded before the total
+    supply is increased.
+    """
+
+    parent_id = block.get("parent_id")
+    verify_block_hash(block, parent_id)
+
+    block_hash = block["block_id"]
+    log_ledger_event("mint", wallet, amount, reason, block_hash, journal_file=journal_file)
+    _update_total_supply(amount, path=supply_file)
 
 
 def replay_chain(chain_path: str = "blockchain.jsonl", events_dir: str = "data/events", balances_file: str | None = None) -> None:

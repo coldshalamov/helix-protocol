@@ -1,8 +1,33 @@
 import json
+import inspect
+import time
 from pathlib import Path
 from typing import Dict, Tuple, Any
 
 from . import event_manager
+
+
+def log_ledger_event(
+    action: str,
+    wallet: str,
+    amount: float,
+    reason: str,
+    block_hash: str,
+    *,
+    journal_file: str = "ledger_journal.jsonl",
+) -> None:
+    """Append a ledger event to the journal."""
+
+    entry = {
+        "action": action,
+        "wallet": wallet,
+        "amount": float(amount),
+        "reason": reason,
+        "block": block_hash,
+        "timestamp": int(time.time()),
+    }
+    with open(journal_file, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
 
 
 def load_balances(path: str) -> Dict[str, float]:
@@ -37,8 +62,21 @@ def get_total_supply(path: str = "supply.json") -> float:
     return float(data)
 
 
-def update_total_supply(delta: float, path: str = "supply.json") -> None:
-    """Increase total supply by ``delta`` and persist the new value."""
+def _update_total_supply(delta: float, path: str = "supply.json") -> None:
+    """Increase total supply by ``delta`` and persist the new value.
+
+    This helper is restricted to :func:`chain_validator.validate_and_mint` to
+    avoid arbitrary minting of HLX. A :class:`PermissionError` is raised if the
+    caller is not the validator.
+    """
+    frame = inspect.currentframe()
+    if frame is not None:
+        caller = frame.f_back
+        mod = caller.f_globals.get("__name__") if caller else None
+        func = caller.f_code.co_name if caller else None
+        if mod != "chain_validator" or func != "validate_and_mint":
+            raise PermissionError("_update_total_supply can only be called from chain_validator.validate_and_mint")
+
     total = get_total_supply(path) + float(delta)
     file = Path(path)
     with open(file, "w", encoding="utf-8") as f:
@@ -94,8 +132,6 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
     refund_miners = event.get("refund_miners", [None] * len(miners))
 
     net_reward = sum(rewards) - sum(refunds)
-    if net_reward:
-        update_total_supply(net_reward)
 
     for idx, miner in enumerate(miners):
         if miner:
@@ -119,8 +155,8 @@ __all__ = [
     "load_balances",
     "save_balances",
     "get_total_supply",
-    "update_total_supply",
     "compression_stats",
     "apply_mining_results",
     "apply_delta_bonus",
+    "log_ledger_event",
 ]

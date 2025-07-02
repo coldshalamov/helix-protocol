@@ -21,7 +21,6 @@ from .ledger import (
     load_balances,
     save_balances,
     apply_mining_results,
-    update_total_supply,
     get_total_supply,
     apply_delta_bonus,
 )
@@ -450,7 +449,6 @@ class HelixNode(GossipNode):
             if event:
                 evt_id = event["header"]["statement_id"]
                 self.events[evt_id] = event
-                update_total_supply(event.get("miner_reward", 0.0))
                 apply_mining_results(event, self.balances)
                 for acct, amt in event.get("payouts", {}).items():
                     self.balances[acct] = self.balances.get(acct, 0.0) + amt
