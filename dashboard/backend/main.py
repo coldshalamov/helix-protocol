@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import base64
-import os
+import math
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -32,6 +33,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,8 +73,8 @@ async def list_statements(limit: int = 10) -> list[dict]:
 
 
 @app.get("/api/statements/active_status")
-async def active_status() -> list[dict]:
-    """Return details for all unfinalized statements."""
+async def list_active_statements() -> list[dict]:
+    """Return all active (unfinalized) statements sorted newest first."""
     if not EVENTS_DIR.exists():
         return []
 
@@ -85,31 +87,29 @@ async def active_status() -> list[dict]:
         if event.get("finalized"):
             continue
         header = event.get("header", {})
-        microblock_size = int(header.get("microblock_size", 0))
-        block_count = int(header.get("block_count", 0))
+        statement = event.get("statement", "")
+        micro_size = int(header.get("microblock_size", 0))
+        block_count = int(header.get("block_count", math.ceil(len(statement) / micro_size))) if micro_size else 0
         seeds = event.get("seeds", [None] * block_count)
         mined_blocks = []
         for idx, seed in enumerate(seeds):
             if not seed:
                 continue
             if isinstance(seed, list):
-                seed_bytes = bytes(seed)
-                seed_hex = seed_bytes.hex()
+                seed_hex = bytes(seed).hex()
             elif isinstance(seed, str):
                 seed_hex = seed
             else:
                 seed_hex = bytes(seed).hex()
             mined_blocks.append({"index": idx, "seed": seed_hex})
         unmined_blocks = [idx for idx, seed in enumerate(seeds) if not seed]
-        header_b64 = base64.b64encode(json.dumps(header).encode("utf-8")).decode(
-            "ascii"
-        )
-        submitted_at = int(os.path.getmtime(path))
+        header_b64 = base64.b64encode(json.dumps(header).encode("utf-8")).decode("ascii")
+        submitted_at = int(path.stat().st_mtime)
         entry = {
             "statement_id": header.get("statement_id", path.stem),
-            "statement": event.get("statement", ""),
+            "statement": statement,
             "header": header_b64,
-            "microblock_size": microblock_size,
+            "microblock_size": micro_size,
             "microblock_count": block_count,
             "mined_blocks": mined_blocks,
             "unmined_blocks": unmined_blocks,
