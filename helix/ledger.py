@@ -26,6 +26,7 @@ def get_total_supply(path: str = "supply.json") -> float:
     except Exception:
         return 0.0
 
+
 def load_balances(path: str) -> Dict[str, float]:
     """Return balances mapping from ``path`` if it exists."""
     if not os.path.exists(path):
@@ -135,14 +136,7 @@ def apply_mining_results(
     *,
     journal_file: str = "ledger_journal.jsonl",
 ) -> None:
-    """Apply compression rewards and delta bonuses for ``event`` to ``balances``.
-
-    Rewards are calculated from the byte savings of each mined microblock and
-    applied cumulatively. If a microblock is further compressed later, only the
-    additional savings are rewarded to the new miner. All payouts are logged to
-    ``journal_file`` with ``compression_reward`` as the reason.
-    """
-
+    """Apply compression rewards and delta bonuses for ``event`` to ``balances``."""
     miners = event.get("miners") or []
     microblocks = event.get("microblocks") or []
     seeds = event.get("seeds") or []
