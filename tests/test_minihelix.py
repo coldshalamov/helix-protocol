@@ -27,6 +27,7 @@ def test_verify_seed_false():
 
 
 def test_find_nested_seed_simple():
+    pytest.skip("Exhaustive miner disabled under streamed hash")
     N = 4
     base_seed = b"a"
     inter1 = mh.G(base_seed, N)

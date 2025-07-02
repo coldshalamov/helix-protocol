@@ -2,7 +2,7 @@ import hashlib
 import os
 import random
 
-from .minihelix import DEFAULT_MICROBLOCK_SIZE
+from .minihelix import DEFAULT_MICROBLOCK_SIZE, G
 
 
 def truncate_hash(data: bytes, length: int) -> bytes:
@@ -12,7 +12,6 @@ def truncate_hash(data: bytes, length: int) -> bytes:
 
 def generate_microblock(seed: bytes, block_size: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
     """Return microblock for ``seed`` using the MiniHelix hash stream."""
-
     output = b""
     current = hashlib.sha256(seed).digest()
     output += current
