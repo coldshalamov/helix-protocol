@@ -34,14 +34,17 @@ except Exception:  # pragma: no cover - use slow Python implementations
         return None
 
     def verify_seed(seed: bytes, target: bytes) -> bool:
+        """Return True if seed regenerates target."""
         return G(seed, len(target)) == target
 
     def decode_header(hdr: bytes) -> Tuple[int, int]:
+        """Decode a two-byte header into (flat_length, nested_length)."""
         if len(hdr) != HEADER_SIZE:
             raise ValueError("invalid header")
         return hdr[0], hdr[1]
 
     def unpack_seed(seed: bytes, block_size: int) -> bytes:
+        """Return the microblock produced by ``seed``."""
         depth = seed[0]
         length = seed[1]
         payload = seed[2:2 + length]
@@ -77,6 +80,11 @@ def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_00
         if candidate == target:
             return seed
     return None
+
+
+def mine_seed(target_block: bytes, max_attempts: int | None = 1_000_000) -> bytes | None:
+    """Compatibility wrapper calling :func:`find_seed`."""
+    return find_seed(target_block, max_seed_len=DEFAULT_MICROBLOCK_SIZE, attempts=max_attempts or 0)
 
 
 __all__ = [
