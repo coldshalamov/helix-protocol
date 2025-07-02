@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, Any
 
-from helix import minihelix, merkle, blockchain, event_manager
+from helix import minihelix, blockchain, event_manager
 from helix.ledger import load_balances
 
 
