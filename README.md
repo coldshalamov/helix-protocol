@@ -85,6 +85,17 @@ python setup_genesis.py
 
 This mines the genesis microblocks and writes the results into the `data/` directory.
 
+## 🧪 Running Tests
+
+Execute the full test suite from the repository root using `pytest`:
+
+```bash
+pytest -v --tb=short tests/
+```
+
+Running individual test files via `python test_*.py` can break imports and is
+not supported.
+
 ## ❓ Troubleshooting
 
 - **`ModuleNotFoundError: No module named 'nacl'`**
