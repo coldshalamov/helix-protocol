@@ -2,6 +2,14 @@ from __future__ import annotations
 
 """Utilities for mining nested MiniHelix seeds."""
 
+import json
+import os
+import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any, Dict
+
 from . import minihelix, exhaustive_miner
 from .minihelix import G, mine_seed
 
@@ -295,3 +303,88 @@ def unpack_seed_chain(
     for _ in range(len(chain)):
         current = G(current, block_size)
     return current
+
+
+def _load_event(event: str | Dict[str, Any], events_dir: str) -> tuple[Dict[str, Any], Path | None]:
+    """Return event dict from ``event`` or load from ``events_dir``."""
+
+    if isinstance(event, str):
+        path = Path(events_dir) / f"{event}.json"
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data, path
+    return event, None
+
+
+def _save_event(event: Dict[str, Any], path: Path | None) -> None:
+    if path is None:
+        return
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(event, fh, indent=2)
+
+
+def parallel_mine_event(
+    event: Dict[str, Any] | str,
+    *,
+    events_dir: str = "events",
+    max_depth: int = 4,
+    workers: int | None = None,
+) -> int:
+    """Mine all unmined microblocks in ``event`` concurrently."""
+
+    evt, path = _load_event(event, events_dir)
+
+    blocks = [b if isinstance(b, (bytes, bytearray)) else bytes.fromhex(b) for b in evt.get("microblocks", [])]
+    seeds = evt.setdefault("seeds", [None] * len(blocks))
+    depths = evt.setdefault("seed_depths", [0] * len(blocks))
+    status = evt.setdefault("mined_status", [False] * len(blocks))
+
+    pending: queue.Queue[int] = queue.Queue()
+    for idx, seed in enumerate(seeds):
+        if seed is None:
+            pending.put(idx)
+
+    lock = threading.Lock()
+    mined = 0
+
+    def worker(tid: int) -> None:
+        nonlocal mined
+        while True:
+            try:
+                idx = pending.get_nowait()
+            except queue.Empty:
+                break
+
+            block = blocks[idx]
+            current_best = seeds[idx]
+            best_len = len(current_best) if isinstance(current_best, (bytes, bytearray)) else float("inf") if current_best is None else len(bytes(current_best))
+
+            result = hybrid_mine(block, max_depth=max_depth)
+            if result is None:
+                continue
+            seed, depth = result
+            chain = [seed]
+            current = seed
+            for _ in range(1, depth):
+                current = G(current, len(block))
+                chain.append(current)
+            encoded = bytes([depth, len(seed)]) + b"".join(chain)
+            with lock:
+                prev = seeds[idx]
+                prev_len = best_len if prev is not None else float("inf")
+                if prev is None or len(encoded) < prev_len:
+                    seeds[idx] = encoded
+                    depths[idx] = depth
+                    status[idx] = True
+                    mined += 1
+                    print(f"Thread {tid} mined microblock {idx}")
+
+    worker_count = workers or max(1, min(os.cpu_count() or 1, len(blocks)))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(worker, i) for i in range(worker_count)]
+        for fut in futures:
+            fut.result()
+
+    _save_event(evt, path)
+    return mined
+
