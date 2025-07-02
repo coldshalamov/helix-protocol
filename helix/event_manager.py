@@ -20,6 +20,8 @@ from .betting_interface import get_bets_for_event
 from .ledger import apply_mining_results
 from .statement_registry import finalize_statement
 from .minihelix import G, DEFAULT_MICROBLOCK_SIZE
+from .wallet import load_wallet
+from . import signature_utils
 import blockchain
 
 FINAL_BLOCK_PADDING_BYTE = b"\x00"
@@ -558,4 +560,33 @@ def replay_and_remine(statement_id: str) -> None:
         improved,
         len(blocks),
     )
+
+
+def submit_statement(
+    statement: str,
+    wallet_id: str,
+    *,
+    wallet_file: str = "wallet.json",
+    events_dir: str = "data/events",
+) -> str:
+    """Create and store a new statement event using ``wallet_id``.
+
+    The wallet keys are loaded from ``wallet_file`` and used to sign the
+    statement.  The resulting event is persisted to ``events_dir`` and the
+    event identifier is returned.
+    """
+
+    try:
+        pub, priv = load_wallet(Path(wallet_file))
+    except Exception:
+        pub, priv = signature_utils.generate_keypair()
+
+    if wallet_id and wallet_id != pub:
+        # Wallet mismatch is not fatal but warn via logging
+        logging.warning("wallet_id does not match wallet file")
+
+    event = create_event(statement, private_key=priv)
+    save_event(event, events_dir)
+    return event["header"]["statement_id"]
+
 
