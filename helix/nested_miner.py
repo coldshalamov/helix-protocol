@@ -10,25 +10,30 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict
 
-from . import minihelix, exhaustive_miner
+from . import minihelix
 from .minihelix import G, mine_seed
 
-# Maximum supported depth when validating nested seed chains.  This
-# mirrors the limit enforced by :mod:`helix.exhaustive_miner` and
-# prevents extremely deep (and expensive) chains from being accepted.
+# Maximum supported depth when validating nested seed chains
 MAX_DEPTH = 500
 
 
 class NestedSeed(bytes):
-    """Representation of a mined nested seed chain."""
+    """Representation of a mined seed or seed chain."""
 
     def __new__(
-        cls, chain_bytes: bytes, depth: int, encoded: bytes, chain: list[bytes]
+        cls,
+        chain_bytes: bytes,
+        depth: int,
+        encoded: bytes,
+        chain: list[bytes],
+        *,
+        fallback_only: bool = False,
     ):
         obj = bytes.__new__(cls, chain_bytes)
         obj.depth = depth
         obj.encoded = encoded
         obj.chain = chain
+        obj.fallback_only = fallback_only
         return obj
 
     def __iter__(self):
@@ -43,27 +48,25 @@ def _encode_chain(chain: list[bytes]) -> bytes:
 
 
 def encode_chain(chain: list[bytes]) -> bytes:
-    """Encode ``chain`` into the on-chain byte representation."""
     return _encode_chain(chain)
 
 
 def _decode_chain(
     encoded: bytes, block_size: int, *, validate_output: bool = True
 ) -> list[bytes]:
-    """Decode ``encoded`` seed chain into a list of seeds or microblocks."""
     if not encoded:
         return []
 
     depth = encoded[0]
     seed_len = encoded[1]
-    seed = encoded[2 : 2 + seed_len]
-    rest = encoded[2 + seed_len :]
+    seed = encoded[2:2 + seed_len]
+    rest = encoded[2 + seed_len:]
 
     chain = [seed]
     current = seed
     for i in range(depth - 1):
         start = i * block_size
-        segment = rest[start : start + block_size]
+        segment = rest[start:start + block_size]
         if validate_output:
             expected = G(current, block_size)
             if segment != expected:
@@ -74,75 +77,48 @@ def _decode_chain(
     return chain
 
 
-def decode_chain(
-    encoded: bytes, block_size: int, *, validate_output: bool = True
-) -> list[bytes]:
-    """Public wrapper around :func:`_decode_chain`."""
-
+def decode_chain(encoded: bytes, block_size: int, *, validate_output: bool = True) -> list[bytes]:
     return _decode_chain(encoded, block_size, validate_output=validate_output)
 
 
 def _seed_is_valid(seed: bytes, block_size: int) -> bool:
-    """Return True if ``seed`` length does not exceed ``block_size``."""
     return 0 < len(seed) <= block_size
 
 
-def find_nested_seed(
-    target_block: bytes,
-    max_depth: int = 10,
-    *,
-    start_nonce: int = 0,
-    attempts: int = 10_000,
-    max_steps: int = 1000,
-) -> NestedSeed | None:
-    """Return the shortest seed chain regenerating ``target_block``."""
+def find_nested_seed(target_block: bytes) -> NestedSeed | None:
+    """Return the shortest seed regenerating ``target_block``."""
 
-    block_size = len(target_block)
+    N = len(target_block)
     best: NestedSeed | None = None
-    fallback: NestedSeed | None = None
-    best_len = float("inf")
+    best_len = N + 1
 
-    for flat_len in range(1, block_size + 1):
+    for flat_len in range(1, N + 1):
         max_value = 256 ** flat_len
         for i in range(max_value):
             seed = i.to_bytes(flat_len, "big")
 
-            # direct expansion
-            out = minihelix.unpack_seed(seed, block_size)
+            # Try flat seed directly
+            out = minihelix.unpack_seed(seed, N)
             if out == target_block:
-                chain = [seed]
-                cand = NestedSeed(b"".join(chain), 1, _encode_chain(chain), chain)
-                if flat_len == block_size:
-                    if fallback is None:
-                        fallback = cand
-                elif flat_len < best_len:
-                    best = cand
+                if flat_len < best_len or best is None:
+                    enc = bytes([1, flat_len]) + seed
+                    best = NestedSeed(seed, 1, enc, [seed], fallback_only=flat_len == N)
                     best_len = flat_len
 
-            # one level nested search
-            g_out = G(seed, block_size + minihelix.HEADER_SIZE)
-            _, nested_len = minihelix.decode_header(g_out[: minihelix.HEADER_SIZE])
-            if 0 < nested_len <= block_size:
-                nested_seed = g_out[
-                    minihelix.HEADER_SIZE : minihelix.HEADER_SIZE + nested_len
-                ]
-                nested_out = minihelix.unpack_seed(nested_seed, block_size)
-                if nested_out == target_block:
-                    chain = [seed, nested_seed]
-                    cand = NestedSeed(
-                        b"".join(chain), 2, _encode_chain(chain), chain
-                    )
-                    if flat_len == block_size:
-                        if fallback is None:
-                            fallback = cand
-                    elif flat_len < best_len:
-                        best = cand
-                        best_len = flat_len
+            # Derive and test nested seed
+            g_out = minihelix.G(seed, N + minihelix.HEADER_SIZE)
+            hdr_flat, nested_len = minihelix.decode_header(g_out[:minihelix.HEADER_SIZE])
+            if hdr_flat != flat_len or nested_len == 0 or nested_len > N:
+                continue
+            nested_seed = g_out[minihelix.HEADER_SIZE: minihelix.HEADER_SIZE + nested_len]
+            nested_out = minihelix.unpack_seed(nested_seed, N)
+            if nested_out == target_block:
+                if nested_len < best_len or best is None:
+                    enc = bytes([2, flat_len]) + seed + nested_seed
+                    best = NestedSeed(seed + nested_seed, 2, enc, [seed, nested_seed], fallback_only=nested_len == N)
+                    best_len = nested_len
 
-        if best is not None and best_len <= flat_len:
-            break
-
-    return best if best is not None else fallback
+    return best
 
 
 def verify_nested_seed(
@@ -152,13 +128,6 @@ def verify_nested_seed(
     max_steps: int = 1000,
     max_depth: int = MAX_DEPTH,
 ) -> bool:
-    """Return ``True`` if ``seed_chain`` regenerates ``target_block``.
-
-    The chain may be provided either as a list of seeds/microblocks or as
-    the encoded bytes returned by :func:`find_nested_seed`.  Validation is
-    bounded by ``max_depth`` and ``max_steps`` to mirror the main mining
-    logic.
-    """
     N = len(target_block)
 
     if isinstance(seed_chain, (bytes, bytearray)):
@@ -173,7 +142,7 @@ def verify_nested_seed(
             return False
 
         offset = 2
-        seed = seed_chain[offset : offset + seed_len]
+        seed = seed_chain[offset: offset + seed_len]
         if not _seed_is_valid(seed, N):
             return False
         offset += seed_len
@@ -182,14 +151,13 @@ def verify_nested_seed(
             if step_num > max_steps:
                 return False
             current = G(current, N)
-            next_block = seed_chain[offset : offset + N]
+            next_block = seed_chain[offset: offset + N]
             if len(next_block) != N or current != next_block:
                 return False
             offset += N
         current = G(current, N)
         return current == target_block
 
-    # List version
     if not seed_chain:
         return False
     if len(seed_chain) > max_depth or len(seed_chain) - 1 > max_steps:
@@ -219,14 +187,7 @@ def hybrid_mine(
     attempts: int | None = None,
     max_steps: int = 1000,
 ) -> tuple[bytes, int] | None:
-    """Attempt direct and nested mining for ``target_block``.
-
-    The function first tries :func:`find_nested_seed`. If successful,
-    returns the base seed and depth. If not, falls back to :func:`mine_seed`.
-
-    Returns a ``(seed, depth)`` tuple.
-    """
-    result = find_nested_seed(target_block, max_depth=max_depth)
+    result = find_nested_seed(target_block)
     if result is not None:
         return result.chain[0], result.depth
 
@@ -243,32 +204,20 @@ def unpack_seed_chain(
     block_size: int | None = None,
     validate_output: bool = True,
 ) -> bytes:
-    """Return the microblock generated from ``seed_chain``.
-
-    The chain may be provided either as a list of seeds or the encoded
-    byte form returned by :func:`find_nested_seed`. When ``block_size`` is
-    not provided, it is inferred from the chain if possible. The returned
-    bytes are produced by applying :func:`minihelix.G` ``depth`` times to the
-    base seed.
-    """
     if isinstance(seed_chain, (bytes, bytearray)):
         if not seed_chain:
             return b""
         depth = seed_chain[0]
         seed_len = seed_chain[1]
-        seed = seed_chain[2 : 2 + seed_len]
-        rest = seed_chain[2 + seed_len :]
+        seed = seed_chain[2:2 + seed_len]
+        rest = seed_chain[2 + seed_len:]
         if block_size is None:
-            block_size = (
-                len(rest) // (depth - 1)
-                if depth > 1
-                else minihelix.DEFAULT_MICROBLOCK_SIZE
-            )
+            block_size = len(rest) // (depth - 1) if depth > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
         chain: list[bytes] = [seed]
         current = seed
         for i in range(depth - 1):
             start = i * block_size
-            segment = rest[start : start + block_size]
+            segment = rest[start:start + block_size]
             if validate_output:
                 expected = G(current, block_size)
                 if segment != expected:
@@ -278,9 +227,7 @@ def unpack_seed_chain(
     else:
         chain = list(seed_chain)
         if block_size is None:
-            block_size = (
-                len(chain[1]) if len(chain) > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
-            )
+            block_size = len(chain[1]) if len(chain) > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
         if validate_output and len(chain) > 1:
             current = chain[0]
             for segment in chain[1:]:
@@ -295,8 +242,6 @@ def unpack_seed_chain(
 
 
 def _load_event(event: str | Dict[str, Any], events_dir: str) -> tuple[Dict[str, Any], Path | None]:
-    """Return event dict from ``event`` or load from ``events_dir``."""
-
     if isinstance(event, str):
         path = Path(events_dir) / f"{event}.json"
         with open(path, "r", encoding="utf-8") as fh:
@@ -319,8 +264,6 @@ def parallel_mine_event(
     max_depth: int = 4,
     workers: int | None = None,
 ) -> int:
-    """Mine all unmined microblocks in ``event`` concurrently."""
-
     evt, path = _load_event(event, events_dir)
 
     blocks = [b if isinstance(b, (bytes, bytearray)) else bytes.fromhex(b) for b in evt.get("microblocks", [])]
@@ -346,7 +289,7 @@ def parallel_mine_event(
 
             block = blocks[idx]
             current_best = seeds[idx]
-            best_len = len(current_best) if isinstance(current_best, (bytes, bytearray)) else float("inf") if current_best is None else len(bytes(current_best))
+            best_len = len(current_best) if isinstance(current_best, (bytes, bytearray)) else float("inf")
 
             result = hybrid_mine(block, max_depth=max_depth)
             if result is None:
@@ -376,4 +319,3 @@ def parallel_mine_event(
 
     _save_event(evt, path)
     return mined
-

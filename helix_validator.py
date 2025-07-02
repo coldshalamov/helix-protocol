@@ -3,90 +3,66 @@ import hashlib
 from pathlib import Path
 from typing import Any, List
 
-from helix import event_manager, minihelix, nested_miner
-from helix.merkle_utils import build_merkle_tree
+from helix import event_manager, minihelix
 
 
 def sha256_hex(data: bytes) -> str:
+    """Return hex encoded SHA-256 digest."""
     return hashlib.sha256(data).hexdigest()
 
 
-def _parse_seed(encoded: bytes) -> bytes:
-    """Return the base seed from encoded seed chain bytes."""
-    if not encoded or len(encoded) < 2:
-        return b""
-    seed_len = encoded[1]
-    return encoded[2 : 2 + seed_len]
+def _to_bytes(seed: Any) -> bytes:
+    """Return ``seed`` converted to ``bytes``."""
+    if isinstance(seed, bytes):
+        return seed
+    if isinstance(seed, bytearray):
+        return bytes(seed)
+    if isinstance(seed, list):
+        return bytes(seed)
+    if isinstance(seed, str):
+        try:
+            return bytes.fromhex(seed)
+        except ValueError:
+            pass
+    raise TypeError("invalid seed type")
 
 
 def validate_event(event: dict[str, Any]) -> dict[str, Any]:
-    micro_size = event["header"].get("microblock_size", minihelix.DEFAULT_MICROBLOCK_SIZE)
-    block_count = event["header"].get("block_count", len(event.get("seeds", [])))
+    """Return validation details for ``event``."""
+    micro_size = event.get("header", {}).get("microblock_size", minihelix.DEFAULT_MICROBLOCK_SIZE)
 
-    reconstructed_blocks: List[bytes] = []
+    seeds = event.get("seeds", [])
+    blocks: List[bytes] = []
     seed_valid = True
-    bad_index: int | None = None
-    for idx in range(block_count):
-        enc = event.get("seeds", [None])[idx]
-        if enc is None:
-            seed_valid = False
-            bad_index = idx
-            break
-        seed = _parse_seed(enc)
-        block = minihelix.G(seed, micro_size)
-        if not nested_miner.verify_nested_seed(enc, block):
-            seed_valid = False
-            bad_index = idx
-            break
-        reconstructed_blocks.append(block)
 
-    statement_bytes = b"".join(reconstructed_blocks).rstrip(b"\x00")
+    for idx, seed in enumerate(seeds):
+        try:
+            block = minihelix.unpack_seed(_to_bytes(seed), micro_size)
+            blocks.append(block)
+        except Exception:
+            seed_valid = False
+            break
+
+    statement_bytes = b"".join(blocks).rstrip(b"\x00")
     statement = statement_bytes.decode("utf-8", errors="replace")
 
     stmt_match = statement == event.get("statement", "")
     hash_match = sha256_hex(statement_bytes) == event.get("header", {}).get("statement_id")
 
-    root, tree = build_merkle_tree(reconstructed_blocks)
-    hdr_root = event.get("header", {}).get("merkle_root")
-    merkle_match = hdr_root == root
-    if merkle_match and event.get("merkle_tree"):
-        merkle_match = tree == event["merkle_tree"]
-
-    orig_bytes = micro_size * block_count
-    comp_bytes = sum(len(s) for s in event.get("seeds", []) if s is not None)
-    reduction = 100.0 * (1 - (comp_bytes / orig_bytes)) if orig_bytes else 0.0
-
     return {
         "statement": statement,
         "statement_match": stmt_match,
         "hash_match": hash_match,
-        "merkle_match": merkle_match,
         "seed_valid": seed_valid,
-        "bad_index": bad_index,
-        "orig_bytes": orig_bytes,
-        "comp_bytes": comp_bytes,
-        "reduction": reduction,
-        "block_count": block_count,
-        "statement_id": event.get("header", {}).get("statement_id"),
     }
 
 
 def print_summary(result: dict[str, Any]) -> None:
-    status = "✓" if all(
-        [result["statement_match"], result["hash_match"], result["merkle_match"], result["seed_valid"]]
-    ) else "✗"
-    print(f"[{status}] Statement ID: {result['statement_id']}")
-    print(f"    Microblocks: {result['block_count']}")
-    print(f"    Reconstructed: {'✔' if result['statement_match'] else '✖'}")
-    print(f"    Merkle Verified: {'✔' if result['merkle_match'] else '✖'}")
-    print(f"    Seed Chain Valid: {'✔' if result['seed_valid'] else '✖'}")
-    if not result['seed_valid'] and result['bad_index'] is not None:
-        print(f"        Failed at microblock {result['bad_index']}")
     print(
-        f"    Compression: {result['orig_bytes']} → {result['comp_bytes']} bytes ({result['reduction']:.1f}%)"
+        f"Statement reconstruction: {'✓' if result['statement_match'] else '✗'}"
     )
-    if not result["hash_match"]:
-        print("    Statement hash mismatch")
+    print(f"Statement ID match: {'✓' if result['hash_match'] else '✗'}")
+    print(f"Seed unpack validity: {'✓' if result['seed_valid'] else '✗'}")
 
 
 def main(argv: List[str] | None = None) -> None:
@@ -102,6 +78,9 @@ def main(argv: List[str] | None = None) -> None:
     event = event_manager.load_event(str(path))
     result = validate_event(event)
     print_summary(result)
+
+    if not all([result["statement_match"], result["hash_match"], result["seed_valid"]]):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
