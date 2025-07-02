@@ -3,6 +3,7 @@
 import hashlib
 import os
 import random
+from typing import Optional, Tuple
 
 try:  # pragma: no cover - optional native extension
     from .minihelix import DEFAULT_MICROBLOCK_SIZE, HEADER_SIZE, G
@@ -21,7 +22,7 @@ except Exception:  # pragma: no cover - use slow Python implementations
             output += current
         return output[:N]
 
-    def mine_seed(target: bytes, *, max_attempts: int | None = None) -> bytes | None:
+    def mine_seed(target: bytes, *, max_attempts: int | None = None) -> Optional[bytes]:
         """Brute force a seed generating ``target``."""
         attempts = 0
         N = len(target)
@@ -35,7 +36,7 @@ except Exception:  # pragma: no cover - use slow Python implementations
     def verify_seed(seed: bytes, target: bytes) -> bool:
         return G(seed, len(target)) == target
 
-    def decode_header(hdr: bytes) -> tuple[int, int]:
+    def decode_header(hdr: bytes) -> Tuple[int, int]:
         if len(hdr) != HEADER_SIZE:
             raise ValueError("invalid header")
         return hdr[0], hdr[1]
@@ -51,7 +52,7 @@ except Exception:  # pragma: no cover - use slow Python implementations
 
 
 def truncate_hash(data: bytes, length: int) -> bytes:
-    """Return the first `length` bytes of SHA256(data)."""
+    """Return the first ``length`` bytes of SHA256 of ``data``."""
     return hashlib.sha256(data).digest()[:length]
 
 
@@ -66,8 +67,8 @@ def generate_microblock(seed: bytes, block_size: int = DEFAULT_MICROBLOCK_SIZE) 
     return output[:block_size]
 
 
-def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> bytes | None:
-    """Search for a seed that generates `target` when truncated to len(target)."""
+def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> Optional[bytes]:
+    """Randomly search for a seed that generates ``target``."""
     target_len = len(target)
     for _ in range(attempts):
         seed_len = random.randint(1, max_seed_len)
@@ -79,12 +80,13 @@ def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_00
 
 
 __all__ = [
-    "truncate_hash",
-    "generate_microblock",
-    "find_seed",
+    "DEFAULT_MICROBLOCK_SIZE",
     "G",
     "mine_seed",
     "verify_seed",
+    "truncate_hash",
+    "generate_microblock",
+    "find_seed",
     "decode_header",
     "unpack_seed",
 ]

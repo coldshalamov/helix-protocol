@@ -415,6 +415,52 @@ def cmd_replay(args: argparse.Namespace) -> None:
     print(f"[\u2713] Compression Ratio: {orig_len} \u2192 {comp_len}")
 
 
+def cmd_view_statement(args: argparse.Namespace) -> None:
+    """Display a finalized statement and compression info."""
+
+    evt_path = Path("data/events") / f"{args.statement_id}.json"
+    if not evt_path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(evt_path))
+    hdr = event.get("header", {})
+    size = hdr.get("microblock_size", event_manager.DEFAULT_MICROBLOCK_SIZE)
+
+    blocks: list[bytes] = []
+    for seed in event.get("seeds", []):
+        if not seed:
+            continue
+        if isinstance(seed, list):
+            raw = seed[0]
+            if isinstance(raw, str):
+                raw = bytes.fromhex(raw)
+            seed_bytes = raw
+        elif isinstance(seed, str):
+            seed_bytes = bytes.fromhex(seed)
+        else:
+            seed_bytes = seed
+        blocks.append(minihelix.G(seed_bytes, size))
+
+    statement_bytes = b"".join(blocks).rstrip(b"\x00")
+    statement = statement_bytes.decode("utf-8", "replace")
+
+    orig_len = hdr.get("original_length", len(statement_bytes))
+    comp_len = 0
+    for seed in event.get("seeds", []):
+        if not seed:
+            continue
+        if isinstance(seed, list):
+            for s in seed:
+                comp_len += len(bytes.fromhex(s) if isinstance(s, str) else s)
+        else:
+            comp_len += len(bytes.fromhex(seed) if isinstance(seed, str) else seed)
+
+    pct = (1 - comp_len / orig_len) * 100 if orig_len else 0.0
+
+    print(statement)
+    print(f"Compression: {orig_len} -> {comp_len} bytes ({pct:.1f}% saved)")
+
+
 def cmd_inspect(args: argparse.Namespace) -> None:
     """Display detailed information about a finalized event."""
 
@@ -564,6 +610,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_replay.add_argument("event_id", help="Event identifier")
     p_replay.set_defaults(func=cmd_replay)
 
+    p_view_stmt = sub.add_parser("view-statement", help="Display finalized statement")
+    p_view_stmt.add_argument("statement_id", help="Statement identifier")
+    p_view_stmt.set_defaults(func=cmd_view_statement)
+
     p_inspect = sub.add_parser("inspect", help="Inspect finalized event")
     p_inspect.add_argument("event_id", help="Event identifier")
     p_inspect.set_defaults(func=cmd_inspect)
@@ -612,6 +662,7 @@ __all__ = [
     "cmd_mine",
     "cmd_finalize",
     "cmd_replay",
+    "cmd_view_statement",
     "cmd_inspect",
     "cmd_payouts",
     "cmd_view_tip",

@@ -304,6 +304,11 @@ class HelixNode(GossipNode):
             event_manager.save_event(event, str(self.events_dir))
         save_balances(self.balances, str(self.balances_file))
 
+    def get_balance(self, wallet_id: str) -> float:
+        """Return the current HLX balance for ``wallet_id``."""
+
+        return float(self.balances.get(wallet_id, 0.0))
+
     def _track_fork(self, block: Dict[str, Any]) -> None:
         if self.fork_chain is None:
             parent_id = block.get("parent_id")
