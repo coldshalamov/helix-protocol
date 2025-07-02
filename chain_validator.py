@@ -244,5 +244,34 @@ def replay_chain(chain_path: str = "blockchain.jsonl", events_dir: str = "data/e
     print("Chain is valid ✅")
 
 
+def verify_supply_consistency(events_dir: str, supply_path: str) -> bool:
+    """Verify that minted HLX in the ledger journal matches ``supply_path``.
+
+    The function sums all ``mint`` actions recorded in ``ledger_journal.jsonl``
+    under ``events_dir`` and compares the total against the ``total`` field in
+    ``supply_path``.  A :class:`ValueError` is raised if the values differ.
+    """
+
+    journal = Path(events_dir) / "ledger_journal.jsonl"
+    if not journal.exists():
+        raise FileNotFoundError(journal)
+
+    minted = 0.0
+    with open(journal, "r", encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if entry.get("action") == "mint":
+                minted += float(entry.get("amount", 0.0))
+
+    with open(supply_path, "r", encoding="utf-8") as fh:
+        supply_total = float(json.load(fh).get("total", 0.0))
+
+    if abs(minted - supply_total) > 1e-6:
+        raise ValueError(f"supply mismatch: journal={minted} expected={supply_total}")
+    return True
+
+
 if __name__ == "__main__":
     replay_chain()

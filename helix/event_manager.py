@@ -45,6 +45,8 @@ event_metadata: Dict[str, Dict[str, int]] = {}
 
 # File used to persist finalized statements
 FINALIZED_FILE = Path("finalized_statements.jsonl")
+# File used to log finalized block summaries
+FINALIZED_EVENT_LOG = Path("finalized_log.jsonl")
 
 
 def sha256(data: bytes) -> str:
@@ -383,6 +385,23 @@ def _legacy_finalize_event(
 
     event["payouts"] = payouts
     event["miner_reward"] = miner_reward
+
+    # Append summary entry for this finalized block
+    try:
+        with open(FINALIZED_EVENT_LOG, "a", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "block_id": block_id,
+                    "statement_id": statement_id,
+                    "miner_id": node_id,
+                    "delta_seconds": delta_seconds,
+                    "compression_reward": miner_reward,
+                },
+                fh,
+            )
+            fh.write("\n")
+    except Exception as exc:  # pragma: no cover - logging only
+        print(f"Failed to record finalized event log: {exc}")
 
     # Persist event if requested
     if events_dir:
