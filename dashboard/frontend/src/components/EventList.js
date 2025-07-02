@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 
@@ -8,15 +8,15 @@ export default function EventList() {
   useEffect(() => {
     axios
       .get("/api/events")
-      .then((res) => setEvents(res.data))
-      .catch((err) => console.error(err));
+      .then(res => setEvents(res.data))
+      .catch(err => console.error(err));
   }, []);
 
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Events</h1>
       <ul className="space-y-1">
-        {events.map((evt) => (
+        {events.map(evt => (
           <li key={evt.header.statement_id}>
             <Link
               to={`/statement/${evt.header.statement_id}`}
