@@ -256,16 +256,19 @@ def finalize_event(
     chain_file: str = "blockchain.jsonl",
     balances_file: str | None = None,
     _bc: Any | None = None,
+    delta_bonus: bool = False,
 ) -> Dict[str, float]:
     bc_mod = _bc if _bc is not None else blockchain
 
     parent_id = bc_mod.get_chain_tip(chain_file)
     evt_id = event["header"]["statement_id"]
+    finalize_statement(event)
     block_header = {
         "parent_id": parent_id,
         "event_ids": [evt_id],
         "previous_hash": event["header"].get("previous_hash"),
         "delta_seconds": event["header"].get("delta_seconds"),
+        "delta_bonus": int(bool(delta_bonus)),
         "miner": node_id,
     }
     digest = sha256(json.dumps(block_header, sort_keys=True).encode("utf-8"))
