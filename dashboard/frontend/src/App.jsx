@@ -94,11 +94,11 @@ const Statement = () => {
               const seedLength = seed ? (Array.isArray(seed) ? seed.length : Math.floor(seed.length / 2)) : 0;
               return (
                 <tr key={idx}>
-                <td className="px-4 py-2 whitespace-nowrap">{idx}</td>
-                <td className="px-4 py-2 font-mono break-all">{block}</td>
-                <td className="px-4 py-2 font-mono break-all">{seedHex}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{seedLength}</td>
-                <td className="px-4 py-2 break-all">{miner || ''}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{idx}</td>
+                  <td className="px-4 py-2 font-mono break-all">{block}</td>
+                  <td className="px-4 py-2 font-mono break-all">{seedHex}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{seedLength}</td>
+                  <td className="px-4 py-2 break-all">{miner || ''}</td>
                 </tr>
               );
             })}
