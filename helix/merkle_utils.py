@@ -8,7 +8,7 @@ def _hash(data: bytes) -> bytes:
 
 
 def build_merkle_tree(microblocks: List[bytes]) -> Tuple[bytes, List[List[bytes]]]:
-    """Return the Merkle root and full tree for ``microblocks``."""
+    """Return the root and full tree from binary-digest Merkle structure."""
     if not microblocks:
         return b"", []
 

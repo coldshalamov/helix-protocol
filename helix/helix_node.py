@@ -427,7 +427,23 @@ class HelixNode(GossipNode):
                 event_manager.accept_mined_seed(event, idx, [seed], miner=pub)
                 self.save_state()
                 self.forward_message(message)
-                if event.get("is_closed") and event_manager.verify_statement(event):
+
+                mined_status = event.get("mined_status")
+                if (
+                    event.get("is_closed")
+                    and mined_status
+                    and all(mined_status)
+                    and not event.get("payouts")
+                ):
+                    node_id = self.public_key or self.node_id
+                    payouts = event_manager.finalize_event(event, node_id=node_id)
+                    event_manager.save_event(event, str(self.events_dir))
+                    print("[\u2713] Event finalized!")
+                    print(f"    ID: {evt_id}")
+                    reward = event.get("miner_reward", 0.0)
+                    print(f"    Total HLX reward: {reward}")
+                    print(f"    Finalizer: {node_id}")
+                elif event.get("is_closed") and event_manager.verify_statement(event):
                     self.finalize_event(event)
         elif mtype == GossipMessageType.FINALIZED:
             event = message.get("event")
