@@ -29,8 +29,13 @@ def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
         raise ValueError("seed must not be empty")
     if len(seed) > 255:
         raise ValueError("seed must be 255 bytes or fewer")
-    data = seed + len(seed).to_bytes(1, "big")
-    return hashlib.sha256(data).digest()[:N]
+
+    output = b""
+    i = 0
+    while len(output) < N:
+        output += hashlib.sha256(seed + bytes([i])).digest()
+        i += 1
+    return output[:N]
 
 
 def encode_header(flat_len: int, nested_len: int) -> bytes:

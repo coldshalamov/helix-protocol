@@ -2,17 +2,23 @@ import hashlib
 import os
 import random
 
+from .minihelix import DEFAULT_MICROBLOCK_SIZE
+
 
 def truncate_hash(data: bytes, length: int) -> bytes:
     """Return the first `length` bytes of SHA256(data)."""
     return hashlib.sha256(data).digest()[:length]
 
 
-def generate_microblock(seed: bytes) -> bytes:
-    """Return microblock for a given seed using G(s) = Truncate_N(H(s || len(s)))."""
-    length = len(seed)
-    input_data = seed + length.to_bytes(4, "big")
-    return hashlib.sha256(input_data).digest()
+def generate_microblock(seed: bytes, block_size: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
+    """Return microblock for ``seed`` using the MiniHelix hash stream."""
+
+    output = b""
+    i = 0
+    while len(output) < block_size:
+        output += hashlib.sha256(seed + bytes([i])).digest()
+        i += 1
+    return output[:block_size]
 
 
 def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> bytes | None:
