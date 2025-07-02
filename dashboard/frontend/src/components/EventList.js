@@ -1,24 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import axios from "axios";
 
 export default function EventList() {
   const [events, setEvents] = useState([]);
 
   useEffect(() => {
-    fetch('/api/events')
-      .then(res => res.json())
-      .then(setEvents)
-      .catch(err => console.error("Failed to load events", err));
+    axios
+      .get("/api/events")
+      .then((res) => setEvents(res.data))
+      .catch((err) => console.error(err));
   }, []);
 
   return (
     <div className="p-4">
-      <h2 className="text-2xl font-bold mb-4">Finalized Events</h2>
-      <ul className="space-y-2">
-        {events.map(ev => (
-          <li key={ev.id} className="p-4 bg-gray-100 rounded shadow">
-            <p><strong>ID:</strong> {ev.id}</p>
-            <p><strong>Statement:</strong> {ev.statement}</p>
-            <p><strong>Compression:</strong> {ev.compression * 100}%</p>
+      <h1 className="text-2xl font-bold mb-4">Events</h1>
+      <ul className="space-y-1">
+        {events.map((evt) => (
+          <li key={evt.header.statement_id}>
+            <Link
+              to={`/statement/${evt.header.statement_id}`}
+              className="text-indigo-600 hover:underline"
+            >
+              {evt.header.statement_id}
+            </Link>
           </li>
         ))}
       </ul>
