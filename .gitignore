@@ -1,4 +1,64 @@
+# === Node.js ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# === Python ===
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.eggs/
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === Environments ===
+.env
+.env.*.local
+
+# === Logs ===
+*.log
+*.out
+*.pid
+
+# === OS / Misc ===
+.DS_Store
+Thumbs.db
+*.swp
+*.zip
+*.tar
+*.gz
+*.sqlite
+*.db
+
+# === VSCode / IDEs ===
+.vscode/
+.idea/
+*.code-workspace
+
+# === Coverage / Testing ===
+htmlcov/
 .coverage
 coverage.xml
+.pytest_cache/
+.tox/
+nosetests.xml
+test-output/
+junit.xml
+
+# === Build Artifacts ===
+dist/
+build/
+*.spec
+
+# === Helix Extras ===
+*.bat~
+*.sh~
+helix_protocol_backup/
