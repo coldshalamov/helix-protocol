@@ -3,66 +3,75 @@ import hashlib
 from pathlib import Path
 from typing import Any, List
 
-from helix import event_manager, minihelix
+from helix import event_manager, minihelix, nested_miner
 
 
 def sha256_hex(data: bytes) -> str:
-    """Return hex encoded SHA-256 digest."""
+    """Return hexadecimal SHA-256 digest of ``data``."""
     return hashlib.sha256(data).hexdigest()
 
 
-def _to_bytes(seed: Any) -> bytes:
-    """Return ``seed`` converted to ``bytes``."""
+def _seed_bytes(seed: Any) -> bytes:
+    """Return raw bytes for ``seed`` stored in an event."""
+    if seed is None:
+        return b""
     if isinstance(seed, bytes):
         return seed
-    if isinstance(seed, bytearray):
-        return bytes(seed)
-    if isinstance(seed, list):
-        return bytes(seed)
     if isinstance(seed, str):
-        try:
-            return bytes.fromhex(seed)
-        except ValueError:
-            pass
-    raise TypeError("invalid seed type")
+        return bytes.fromhex(seed)
+    if isinstance(seed, list):
+        if all(isinstance(b, int) for b in seed):
+            return bytes(seed)
+        return b"".join(
+            bytes.fromhex(part) if isinstance(part, str) else bytes(part)
+            for part in seed
+        )
+    return bytes(seed)
 
 
 def validate_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Return validation details for ``event``."""
-    micro_size = event.get("header", {}).get("microblock_size", minihelix.DEFAULT_MICROBLOCK_SIZE)
+    """Validate integrity of ``event`` using its seeds."""
 
+    micro_size = event.get("microblock_size") or event.get("header", {}).get(
+        "microblock_size",
+        minihelix.DEFAULT_MICROBLOCK_SIZE,
+    )
     seeds = event.get("seeds", [])
+
     blocks: List[bytes] = []
     seed_valid = True
-
-    for idx, seed in enumerate(seeds):
-        try:
-            block = minihelix.unpack_seed(_to_bytes(seed), micro_size)
-            blocks.append(block)
-        except Exception:
+    for seed in seeds:
+        sb = _seed_bytes(seed)
+        if not sb:
             seed_valid = False
             break
+        block = minihelix.unpack_seed(sb, micro_size)
+        if not nested_miner.verify_nested_seed(sb, block):
+            seed_valid = False
+            break
+        blocks.append(block)
 
     statement_bytes = b"".join(blocks).rstrip(b"\x00")
-    statement = statement_bytes.decode("utf-8", errors="replace")
+    reconstructed = statement_bytes.decode("utf-8", "replace")
 
-    stmt_match = statement == event.get("statement", "")
-    hash_match = sha256_hex(statement_bytes) == event.get("header", {}).get("statement_id")
+    stmt_match = reconstructed == event.get("statement", "")
+    hash_match = sha256_hex(statement_bytes) == event.get("header", {}).get(
+        "statement_id"
+    )
 
     return {
-        "statement": statement,
+        "statement": reconstructed,
         "statement_match": stmt_match,
         "hash_match": hash_match,
         "seed_valid": seed_valid,
+        "statement_id": event.get("header", {}).get("statement_id"),
     }
 
 
 def print_summary(result: dict[str, Any]) -> None:
-    print(
-        f"Statement reconstruction: {'✓' if result['statement_match'] else '✗'}"
-    )
-    print(f"Statement ID match: {'✓' if result['hash_match'] else '✗'}")
-    print(f"Seed unpack validity: {'✓' if result['seed_valid'] else '✗'}")
+    print(f"Reassembly: {'✓' if result['statement_match'] else '✗'}")
+    print(f"Hash match: {'✓' if result['hash_match'] else '✗'}")
+    print(f"Seed validation: {'✓' if result['seed_valid'] else '✗'}")
 
 
 def main(argv: List[str] | None = None) -> None:
@@ -78,7 +87,6 @@ def main(argv: List[str] | None = None) -> None:
     event = event_manager.load_event(str(path))
     result = validate_event(event)
     print_summary(result)
-
     if not all([result["statement_match"], result["hash_match"], result["seed_valid"]]):
         raise SystemExit(1)
 
