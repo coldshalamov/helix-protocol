@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 import os
 import tempfile
+import logging
 
 from datetime import datetime
 from nacl import signing
@@ -14,7 +15,7 @@ from .config import GENESIS_HASH
 from .signature_utils import verify_signature, sign_data, generate_keypair
 import time
 from .merkle_utils import build_merkle_tree as _build_merkle_tree
-from . import nested_miner, betting_interface
+from . import nested_miner, betting_interface, exhaustive_miner
 from .betting_interface import get_bets_for_event
 from .ledger import apply_mining_results
 from .statement_registry import finalize_statement
@@ -44,6 +45,8 @@ event_metadata: Dict[str, Dict[str, int]] = {}
 
 # File used to persist finalized statements
 FINALIZED_FILE = Path("finalized_statements.jsonl")
+# File used to log finalized block summaries
+FINALIZED_EVENT_LOG = Path("finalized_log.jsonl")
 
 
 def sha256(data: bytes) -> str:
@@ -383,6 +386,23 @@ def _legacy_finalize_event(
     event["payouts"] = payouts
     event["miner_reward"] = miner_reward
 
+    # Append summary entry for this finalized block
+    try:
+        with open(FINALIZED_EVENT_LOG, "a", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "block_id": block_id,
+                    "statement_id": statement_id,
+                    "miner_id": node_id,
+                    "delta_seconds": delta_seconds,
+                    "compression_reward": miner_reward,
+                },
+                fh,
+            )
+            fh.write("\n")
+    except Exception as exc:  # pragma: no cover - logging only
+        print(f"Failed to record finalized event log: {exc}")
+
     # Persist event if requested
     if events_dir:
         path = Path(events_dir) / f"{header['event_id']}.json"
@@ -476,4 +496,66 @@ def finalize_event(
 
     _finalize_event_by_id(str(event))
     return None
+
+
+def replay_and_remine(statement_id: str) -> None:
+    """Re-mine microblocks for ``statement_id`` from their output.
+
+    Loads ``data/events/<id>.json`` and attempts to compress each microblock
+    again using :func:`exhaustive_miner.exhaustive_mine`.  The number of blocks
+    that yield a smaller encoded seed is logged.  This is a scaffold and does
+    not persist any new seeds.
+    """
+
+    path = Path("data/events") / f"{statement_id}.json"
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+
+    event = load_event(str(path))
+
+    blocks = event.get("microblocks", [])
+    seeds = event.get("seeds", [None] * len(blocks))
+
+    def _seed_len(seed: Any) -> int:
+        if seed is None:
+            return math.inf
+        if isinstance(seed, bytes):
+            return len(seed)
+        if isinstance(seed, str):
+            return len(bytes.fromhex(seed))
+        if isinstance(seed, list):
+            if seed and isinstance(seed[0], int):
+                return len(bytes(seed))
+            total = 0
+            for part in seed:
+                if isinstance(part, str):
+                    total += len(bytes.fromhex(part))
+                elif isinstance(part, list) and part and isinstance(part[0], int):
+                    total += len(bytes(part))
+                else:
+                    total += len(part)
+            return total
+        return len(seed)
+
+    improved = 0
+    for idx, block in enumerate(blocks):
+        chain = exhaustive_miner.exhaustive_mine(block, max_depth=5)
+        if chain is None:
+            continue
+        encoded = bytes([len(chain), len(chain[0])]) + b"".join(chain)
+        cur_len = _seed_len(seeds[idx])
+        if len(encoded) < cur_len:
+            improved += 1
+        logging.debug(
+            "microblock %d old_len=%s new_len=%d",
+            idx,
+            "inf" if cur_len == math.inf else int(cur_len),
+            len(encoded),
+        )
+
+    logging.info(
+        "%d/%d microblocks can be recompressed further",
+        improved,
+        len(blocks),
+    )
 

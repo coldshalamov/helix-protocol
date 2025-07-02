@@ -3,6 +3,8 @@ import hashlib
 from pathlib import Path
 from typing import Any, List
 
+from helix.ledger import load_balances
+
 from helix import event_manager, minihelix, nested_miner
 
 
@@ -78,6 +80,11 @@ def main(argv: List[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Validate finalized Helix event")
     parser.add_argument("event_id", help="Event identifier")
     parser.add_argument("--events-dir", default="data/events", help="Events directory")
+    parser.add_argument(
+        "--check-balance",
+        metavar="wallet_id",
+        help="Print HLX balance for wallet from wallet.json",
+    )
     args = parser.parse_args(argv)
 
     path = Path(args.events_dir) / f"{args.event_id}.json"
@@ -87,6 +94,10 @@ def main(argv: List[str] | None = None) -> None:
     event = event_manager.load_event(str(path))
     result = validate_event(event)
     print_summary(result)
+    if args.check_balance:
+        balances = load_balances("wallet.json")
+        print(balances.get(args.check_balance, 0))
+
     if not all([result["statement_match"], result["hash_match"], result["seed_valid"]]):
         raise SystemExit(1)
 
