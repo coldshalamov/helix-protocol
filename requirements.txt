@@ -3,3 +3,4 @@ pynacl
 websockets
 
 Flask
+pytest-timeout
