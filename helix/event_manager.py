@@ -1,3 +1,24 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+from typing import Any, Dict, List
+
+from . import blockchain, betting_interface
+from .config import GENESIS_HASH
+from .minihelix import G, DEFAULT_MICROBLOCK_SIZE
+
+
+LAST_FINALIZED_HASH = ""
+LAST_FINALIZED_TIME = 0.0
+
+
+def sha256(data: bytes) -> str:
+    """Return the hexadecimal SHA-256 digest of ``data``."""
+    return hashlib.sha256(data).hexdigest()
+
+
 def finalize_event(
     event: Dict[str, Any],
     *,
@@ -27,8 +48,9 @@ def finalize_event(
         ordered_seeds.append(seed)
 
     microblock_size = event["header"].get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
-    regen_blocks = [G(s, microblock_size) for s in ordered_seeds]
-    assert reassemble_microblocks(regen_blocks) == event["statement"]
+    regen_data = b"".join(G(s, microblock_size) for s in ordered_seeds).rstrip(b"\x00")
+    assert sha256(regen_data) == evt_id
+    assert regen_data.decode("utf-8", errors="replace") == event["statement"]
 
     yes_bets, no_bets = betting_interface.get_bets_for_event(event)
     yes_votes = sum(b.get("amount", 0) for b in yes_bets)

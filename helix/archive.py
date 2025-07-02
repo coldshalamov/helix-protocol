@@ -9,7 +9,6 @@ from . import event_manager
 
 def _event_to_dict(event: dict) -> dict:
     data = event.copy()
-    data["microblocks"] = [b.hex() for b in event.get("microblocks", [])]
     if "seeds" in data:
         data["seeds"] = [s.hex() if isinstance(s, bytes) else None for s in data["seeds"]]
     return data

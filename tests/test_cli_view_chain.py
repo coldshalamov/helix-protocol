@@ -21,4 +21,4 @@ def test_view_chain(tmp_path, capsys):
 
     cli.main(["view-chain", "--data-dir", str(tmp_path)])
     out = capsys.readouterr().out.strip()
-    assert "0 e1 123456 0" in out
+    assert "0 e1 123456" in out

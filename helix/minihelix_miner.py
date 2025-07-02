@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .minihelix import G
-from .event_manager import reassemble_microblocks, sha256
+from .event_manager import sha256
 
 
 def _seed_is_valid(seed: bytes, microblock_size: int) -> bool:
@@ -64,9 +64,8 @@ def mine_batch(
 
     if None not in seeds and "statement_id" in header:
         microblock_size = header.get("microblock_size", len(blocks[0]) if blocks else 0)
-        regenerated = [G(s, microblock_size) for s in seeds]  # type: ignore
-        statement = reassemble_microblocks(regenerated)
-        if sha256(statement.encode("utf-8")) != header["statement_id"]:
+        regen_data = b"".join(G(s, microblock_size) for s in seeds).rstrip(b"\x00")
+        if sha256(regen_data) != header["statement_id"]:
             raise ValueError("statement hash mismatch")
 
     return seeds
