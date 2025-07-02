@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from datetime import datetime
 from typing import Any, Dict, Tuple
 
 from . import event_manager
@@ -12,8 +13,19 @@ _BONUS_AMOUNT = 2.0
 
 
 def delta_claim_valid(current: Dict[str, Any], parent: Dict[str, Any]) -> bool:
-    """Placeholder delta claim validation used in tests."""
-    return True
+    """Return ``True`` if ``current`` accurately reports time delta from ``parent``."""
+
+    try:
+        if current.get("parent_id") != parent.get("block_id"):
+            return True
+
+        cur_ts = datetime.fromisoformat(current.get("timestamp"))
+        parent_ts = datetime.fromisoformat(parent.get("timestamp"))
+        actual_delta = (cur_ts - parent_ts).total_seconds()
+        claimed = float(current.get("delta_seconds", 0))
+        return abs(actual_delta - claimed) <= 10
+    except Exception:
+        return False
 
 
 def get_total_supply(path: str = "supply.json") -> float:
