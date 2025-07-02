@@ -7,4 +7,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export PYTHONPATH="$ROOT_DIR:${PYTHONPATH-}"
 
-pytest -v --tb=short tests/
+COV_ARGS="--cov=helix --cov-report=term"
+if [[ -n "${COV_FAIL_UNDER:-}" ]]; then
+  COV_ARGS+=" --cov-fail-under=${COV_FAIL_UNDER}"
+fi
+
+pytest -v --tb=short $COV_ARGS tests/ "$@"

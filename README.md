@@ -54,10 +54,10 @@ Unlike legacy blockchains that mint tokens by wasting computation, Helix mints 1
 - Archiving historical facts with global consensus  
 - Crowdsourcing answers to unresolved questions  
 - Compressing human scientific knowledge into a permanent, auditable form  
-- Storing civic testimony, whistleblower reports, or legal evidence immutably
-- General Decentralized Oracle for Web3 Applications
----
+- Storing civic testimony, whistleblower reports, or legal evidence immutably  
+- General Decentralized Oracle for Web3 Applications  
 
+---
 
 ## 🛠 Installation
 
@@ -67,87 +67,3 @@ Install the required packages:
 
 ```bash
 python3 -m pip install -r requirements.txt
-```
-
-The only external dependency at the moment is [PyNaCl](https://pypi.org/project/PyNaCl/), which can also be installed directly:
-
-```bash
-pip install pynacl
-```
-
-## ⚙️ Genesis Setup
-
-After installing the dependencies, create the initial keys and genesis event:
-
-```bash
-python setup_genesis.py
-```
-
-This mines the genesis microblocks and writes the results into the `data/` directory.
-
-## 🧪 Running Tests
-
-Execute the full test suite from the repository root using `pytest`:
-
-```bash
-pytest -v --tb=short tests/
-```
-
-Running individual test files via `python test_*.py` can break imports and is
-not supported.
-
-## ❓ Troubleshooting
-
-- **`ModuleNotFoundError: No module named 'nacl'`**
-  - Ensure dependencies are installed with `pip install -r requirements.txt`.
-- **`RuntimeError: Failed to mine microblock`**
-  - Mining can require many attempts. Verify PyNaCl is installed and rerun `setup_genesis.py` or increase the mining attempt limits.
-
-## 🚦 Experimental Networking Layer
-
-The initial prototype linked nodes using the in-memory `LocalGossipNetwork`.
-To run nodes across machines, the new `helix.network` package introduces
-socket-based transports for exchanging JSON gossip messages. This
-architecture is designed to evolve toward peer discovery, message routing,
-and optional encryption.
-
-## 🤝 Get Involved
-
-We're seeking contributors in:
-
-- ⚙️ **Rust / Go Developers** – to build the blockchain core  
-- 🧮 **Algorithm Designers** – to optimize the MiniHelix engine  
-- 🎛️ **Frontend Engineers** – to build interfaces for staking, voting, and browsing verified knowledge  
-- 🔐 **Security Researchers** – to stress-test the compression and verification logic  
-- 🧪 **Epistemologists & Economists** – to refine the philosophical and incentive structure
-
----
-
-## 📄 White Paper
-
-📘 See [`Helix.pdf`](./Helix.pdf) for the full whitepaper describing:
-
-- The generative proof-of-work algorithm  
-- Tokenomics and incentives  
-- Storage limits and compression math  
-- Governance via soft forks  
-- Use of parallel microblock mining  
-- How HLX issuance is tied to data compression, not arbitrary work
-
-If the file is missing, [contact us](mailto:DevTeamRob.Helix@gmail.com) or visit the Helix Foundation page.
-
----
-
-## 👤 Project Credits
-
-- **Founder & Architect:** Robin Gattis  
-- **Logo & Visual Identity:** [See Branding Assets Folder]  
-- **Inspired By:** Varlam Shalamov, Claude Shannon, Satoshi Nakamoto  
-
-> “If Bitcoin digitized scarcity, and Ethereum digitized logic—Helix digitizes knowledge itself.”
-
----
-
-## 🪪 License
-
-[MIT License](./LICENSE) — open source, permissionless, and built for permanence.
