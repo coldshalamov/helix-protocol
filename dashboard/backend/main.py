@@ -72,6 +72,57 @@ async def list_statements(limit: int = 10) -> list[dict]:
     return statements
 
 
+@app.get("/api/statements/active_status")
+async def list_active_statements() -> list[dict]:
+    """Return all active (unfinalized) statements sorted newest first."""
+    if not EVENTS_DIR.exists():
+        return []
+
+    entries: list[tuple[float, dict]] = []
+    for path in EVENTS_DIR.glob("*.json"):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        statement = event.get("statement", "")
+        micro_size = int(header.get("microblock_size", 0))
+        block_count = int(header.get("block_count", math.ceil(len(statement) / micro_size))) if micro_size else 0
+        seeds = event.get("seeds", [None] * block_count)
+        mined_blocks = []
+        for idx, seed in enumerate(seeds):
+            if not seed:
+                continue
+            if isinstance(seed, list):
+                seed_hex = bytes(seed).hex()
+            elif isinstance(seed, str):
+                seed_hex = seed
+            else:
+                seed_hex = bytes(seed).hex()
+            mined_blocks.append({"index": idx, "seed": seed_hex})
+        unmined_blocks = [idx for idx, seed in enumerate(seeds) if not seed]
+        header_b64 = base64.b64encode(json.dumps(header).encode("utf-8")).decode("ascii")
+        submitted_at = int(path.stat().st_mtime)
+        entry = {
+            "statement_id": header.get("statement_id", path.stem),
+            "statement": statement,
+            "header": header_b64,
+            "microblock_size": micro_size,
+            "microblock_count": block_count,
+            "mined_blocks": mined_blocks,
+            "unmined_blocks": unmined_blocks,
+            "submitted_at": submitted_at,
+            "wallet_id": event.get("originator_pub"),
+            "finalized": False,
+        }
+        entries.append((submitted_at, entry))
+
+    entries.sort(key=lambda x: x[0], reverse=True)
+    return [e for _, e in entries]
+
+
 @app.get("/api/events")
 async def list_events() -> list[dict]:
     """Return all finalized events."""
@@ -96,51 +147,6 @@ async def list_events() -> list[dict]:
             }
         )
     return events
-
-
-@app.get("/api/statements/active_status")
-async def list_active_statements() -> list[dict]:
-    """Return all active (unfinalized) statements sorted newest first."""
-    if not EVENTS_DIR.exists():
-        return []
-
-    entries: list[tuple[float, dict]] = []
-    for path in EVENTS_DIR.glob("*.json"):
-        try:
-            event = load_event(str(path))
-        except Exception:
-            continue
-        if event.get("finalized"):
-            continue
-        header = event.get("header", {})
-        statement = event.get("statement", "")
-        micro_size = int(header.get("microblock_size", 0))
-        block_count = int(header.get("block_count", math.ceil(len(statement) / micro_size))) if micro_size else 0
-        seeds = event.get("seeds", [])
-        mined_blocks = []
-        unmined = []
-        for idx in range(block_count):
-            seed = seeds[idx] if idx < len(seeds) else None
-            if seed is not None:
-                mined_blocks.append({"index": idx, "seed": seed.hex() if isinstance(seed, (bytes, bytearray)) else str(seed)})
-            else:
-                unmined.append(idx)
-        entry = {
-            "statement_id": header.get("statement_id", path.stem),
-            "statement": statement,
-            "header": base64.b64encode(json.dumps(header).encode("utf-8")).decode("ascii"),
-            "microblock_size": micro_size,
-            "microblock_count": block_count,
-            "mined_blocks": mined_blocks,
-            "unmined_blocks": unmined,
-            "submitted_at": int(path.stat().st_mtime),
-            "wallet_id": event.get("originator_pub"),
-            "finalized": False,
-        }
-        entries.append((path.stat().st_mtime, entry))
-
-    entries.sort(key=lambda x: x[0], reverse=True)
-    return [e[1] for e in entries]
 
 
 @app.get("/api/statement/{statement_id}")
