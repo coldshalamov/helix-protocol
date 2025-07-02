@@ -7,6 +7,15 @@ from datetime import datetime
 
 from . import event_manager
 
+# Tracking for compression rewards and delta bonus verification
+_REWARD_HISTORY: dict[tuple[str, int], int] = {}
+_BLOCK_HEADERS: dict[str, dict[str, Any]] = {}
+_PENDING_BONUS: dict[str, str] = {}
+_VERIFICATION_QUEUE: list[tuple[dict[str, Any] | None, bool, str]] = []
+
+# Fixed delta bonus amount minted when a block is finalized
+_BONUS_AMOUNT = 1.0
+
 
 def log_ledger_event(
     action: str,
@@ -117,32 +126,92 @@ def compression_stats(events_dir: str) -> Tuple[int, float]:
 
 
 def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> None:
-    """Apply mining rewards and refunds from ``event`` to ``balances``.
+    """Apply compression rewards and delta bonuses for ``event``."""
 
-    ``event`` should contain ``miners`` listing the miner for each microblock.
-    If ``refund_miners`` is present, refund amounts are credited to the miner
-    that was replaced for that microblock.
-    """
+    miners = event.get("miners") or []
+    seeds = event.get("seeds", [])
+    microblocks = event.get("microblocks", [])
+    header = event.get("block_header", {})
+    evt_id = header.get("block_id", event.get("header", {}).get("statement_id", ""))
 
-    miners = event.get("miners")
-    if not miners:
-        return
+    def _to_bytes(seed_entry: Any) -> bytes | None:
+        if seed_entry is None:
+            return None
+        if isinstance(seed_entry, (bytes, bytearray)):
+            return bytes(seed_entry)
+        if isinstance(seed_entry, list):
+            if not seed_entry:
+                return None
+            if isinstance(seed_entry[0], int):
+                return bytes(seed_entry)
+            return _to_bytes(seed_entry[-1])
+        return None
 
-    rewards = event.get("rewards", [])
-    refunds = event.get("refunds", [])
-    refund_miners = event.get("refund_miners", [None] * len(miners))
-
-    net_reward = sum(rewards) - sum(refunds)
-
+    # Compression rewards with stacking
     for idx, miner in enumerate(miners):
-        if miner:
-            reward = rewards[idx] if idx < len(rewards) else 0.0
-            balances[miner] = balances.get(miner, 0.0) + reward
+        if not miner:
+            continue
+        if idx >= len(seeds) or idx >= len(microblocks):
+            continue
+        seed_bytes = _to_bytes(seeds[idx])
+        block_bytes = microblocks[idx]
+        if not seed_bytes or not isinstance(block_bytes, (bytes, bytearray)):
+            continue
+        saved = max(0, len(block_bytes) - len(seed_bytes))
+        key = (evt_id, idx)
+        prev = _REWARD_HISTORY.get(key, 0)
+        delta = saved - prev
+        if delta > 0:
+            _REWARD_HISTORY[key] = saved
+            balances[miner] = balances.get(miner, 0.0) + float(delta)
+            log_ledger_event(
+                "mint",
+                miner,
+                float(delta),
+                "compression_reward",
+                evt_id,
+            )
 
-        old_miner = refund_miners[idx]
-        if old_miner:
-            refund = refunds[idx] if idx < len(refunds) else 0.0
-            balances[old_miner] = balances.get(old_miner, 0.0) + refund
+    # Delta bonus logic
+    global _BLOCK_HEADERS, _PENDING_BONUS, _VERIFICATION_QUEUE
+
+    current_finalizer = header.get("finalizer") or header.get("miner")
+    block_id = header.get("block_id")
+
+    # Process queued verification from prior block
+    if _VERIFICATION_QUEUE:
+        prev_hdr, granted, grant_block = _VERIFICATION_QUEUE.pop(0)
+        miner = _PENDING_BONUS.pop(grant_block, None)
+        if miner:
+            if miner == current_finalizer:
+                balances[miner] = balances.get(miner, 0.0) + _BONUS_AMOUNT
+                log_ledger_event("mint", miner, _BONUS_AMOUNT, "delta_bonus", grant_block)
+            elif granted and prev_hdr:
+                parent = _BLOCK_HEADERS.get(prev_hdr.get("parent_id"))
+                if parent and delta_claim_valid(prev_hdr, parent):
+                    balances[miner] = balances.get(miner, 0.0) + _BONUS_AMOUNT
+                    log_ledger_event("mint", miner, _BONUS_AMOUNT, "delta_bonus", grant_block)
+                else:
+                    log_ledger_event("burn", miner, _BONUS_AMOUNT, "delta_penalty", grant_block)
+            else:
+                balances[miner] = balances.get(miner, 0.0) + _BONUS_AMOUNT
+                log_ledger_event("mint", miner, _BONUS_AMOUNT, "delta_bonus", grant_block)
+
+    if header:
+        # Pay bonus to previous block finalizer
+        prev_hdr = _BLOCK_HEADERS.get(header.get("parent_id"))
+        if prev_hdr:
+            prev_finalizer = prev_hdr.get("finalizer") or prev_hdr.get("miner")
+            if prev_finalizer:
+                balances[prev_finalizer] = balances.get(prev_finalizer, 0.0) + _BONUS_AMOUNT
+                log_ledger_event("mint", prev_finalizer, _BONUS_AMOUNT, "delta_bonus", block_id)
+
+        # Queue verification for this block's grant
+        if block_id:
+            _BLOCK_HEADERS[block_id] = header
+            _VERIFICATION_QUEUE.append((prev_hdr, bool(prev_hdr), block_id))
+            if current_finalizer:
+                _PENDING_BONUS[block_id] = current_finalizer
 
 
 def apply_delta_bonus(miner: str, balances: Dict[str, float], amount: float) -> None:
