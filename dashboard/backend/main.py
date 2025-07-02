@@ -16,6 +16,7 @@ from helix.event_manager import (
     save_event,
     load_event,
     list_events as list_saved_events,
+    get_bets_for_event,
 )
 from helix.utils import compression_ratio
 
@@ -159,6 +160,29 @@ async def get_statement(statement_id: str) -> dict:
         return json.loads(path.read_text())
     except Exception as exc:  # pragma: no cover - invalid file
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/bets/status/{statement_id}")
+async def bet_status(statement_id: str) -> dict:
+    """Return total HLX bet on TRUE and FALSE for ``statement_id``."""
+    path = EVENTS_DIR / f"{statement_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    try:
+        event = load_event(str(path))
+    except Exception as exc:  # pragma: no cover - invalid file
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    yes_bets, no_bets = get_bets_for_event(event)
+    total_true = sum(float(b.get("amount", 0)) for b in yes_bets)
+    total_false = sum(float(b.get("amount", 0)) for b in no_bets)
+
+    return {
+        "statement_id": statement_id,
+        "total_true_bets": total_true,
+        "total_false_bets": total_false,
+    }
 
 
 @app.post("/api/submit")
