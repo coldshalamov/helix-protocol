@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
+from helix import signature_utils
+from helix.event_manager import (
+    create_event,
+    save_event,
+    list_events,
+)
 try:
     from helix.ledger import load_balances, get_total_supply
 except Exception:  # pragma: no cover - optional fallback
@@ -16,15 +23,20 @@ EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
 
 
+class SubmitRequest(BaseModel):
+    statement: str
+    microblock_size: int = 3
+
+
 @app.get("/api/statements")
-async def list_statements() -> list[dict]:
-    """Return summary of the last 10 finalized statements."""
-    if not FINALIZED_FILE.exists():
+async def list_statements(limit: int = 10) -> list[dict]:
+    """Return summary of the latest finalized statements."""
+    if not FINALIZED_FILE.exists() or limit <= 0:
         return []
 
-    lines = FINALIZED_FILE.read_text().splitlines()
+    lines = FINALIZED_FILE.read_text().splitlines()[-limit:]
     statements: list[dict] = []
-    for line in lines[-10:]:
+    for line in lines:
         try:
             entry = json.loads(line)
         except Exception:
@@ -67,6 +79,27 @@ async def total_supply() -> dict:
     """Return total HLX supply."""
     supply = get_total_supply("supply.json")
     return {"total_supply": supply}
+
+
+@app.post("/api/submit")
+async def submit_statement(data: SubmitRequest) -> dict:
+    """Create an event from ``data.statement`` and persist it."""
+    _, priv = signature_utils.load_keys("wallet.json")
+    event = create_event(
+        data.statement,
+        microblock_size=data.microblock_size,
+        private_key=priv,
+    )
+    save_event(event, str(EVENTS_DIR))
+    return {
+        "event_id": event["header"]["statement_id"],
+        "block_count": event["header"]["block_count"],
+    }
+
+
+@app.get("/api/events")
+def get_events() -> list[dict]:
+    return list_events("data")
 
 
 if __name__ == "__main__":  # pragma: no cover - manual start

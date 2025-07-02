@@ -559,3 +559,33 @@ def replay_and_remine(statement_id: str) -> None:
         len(blocks),
     )
 
+
+def list_events(directory: str = "data") -> List[Dict[str, Any]]:
+    """Return a summary of all events stored in ``directory``."""
+
+    events_dir = Path(directory) / "events"
+    if not events_dir.exists():
+        return []
+
+    summaries: List[Dict[str, Any]] = []
+    for path in sorted(events_dir.glob("*.json")):
+        try:
+            evt = load_event(str(path))
+        except Exception:
+            continue
+        header = evt.get("header", {})
+        sid = header.get("statement_id", path.stem)
+        mined = sum(1 for m in evt.get("mined_status", []) if m)
+        total = header.get("block_count", len(evt.get("microblocks", [])))
+        summaries.append(
+            {
+                "statement_id": sid,
+                "closed": evt.get("is_closed", False),
+                "mined": mined,
+                "total": total,
+                "statement": evt.get("statement", ""),
+            }
+        )
+
+    return summaries
+
