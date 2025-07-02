@@ -26,27 +26,32 @@ const Home = () => {
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Latest Statements</h1>
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead>
-          <tr>
-            <th>ID</th><th>Compression %</th><th>Delta Seconds</th><th>Timestamp</th>
-          </tr>
-        </thead>
-        <tbody>
-          {statements.map(st => (
-            <tr key={st.statement_id}>
-              <td>
-                <Link to={`/statement/${st.statement_id}`} className="text-indigo-600 hover:underline">
-                  {st.statement_id}
-                </Link>
-              </td>
-              <td>{st.compression_percent}</td>
-              <td>{st.delta_seconds}</td>
-              <td>{st.timestamp}</td>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">ID</th>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Compression %</th>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Delta Seconds</th>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Timestamp</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {statements.map(st => (
+              <tr key={st.statement_id}>
+                <td className="px-4 py-2 break-all">
+                  <Link to={`/statement/${st.statement_id}`} className="text-indigo-600 hover:underline">
+                    {st.statement_id}
+                  </Link>
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">{st.compression_percent}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{st.delta_seconds}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{st.timestamp}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
@@ -70,30 +75,36 @@ const Statement = () => {
       <div>Compressed Size: {data.compressed_size}</div>
       <pre className="bg-gray-100 p-2 whitespace-pre-wrap">{data.reconstructed}</pre>
       <h2 className="text-xl font-semibold mt-4">Microblocks</h2>
-      <table className="min-w-full divide-y divide-gray-200 mt-2">
-        <thead>
-          <tr>
-            <th>Index</th><th>Original Bytes</th><th>Mined Seed</th><th>Seed Length</th><th>Miner Wallet</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.microblocks?.map((block, idx) => {
-            const seed = data.seeds?.[idx];
-            const miner = data.miners?.[idx];
-            const seedHex = Array.isArray(seed) ? seed.map(b => b.toString(16).padStart(2, "0")).join("") : seed || "";
-            const seedLength = seed ? (Array.isArray(seed) ? seed.length : Math.floor(seed.length / 2)) : 0;
-            return (
-              <tr key={idx}>
-                <td>{idx}</td>
-                <td className="font-mono">{block}</td>
-                <td className="font-mono">{seedHex}</td>
-                <td>{seedLength}</td>
-                <td>{miner || ''}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 mt-2">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="w-16 px-4 py-2 text-left font-semibold whitespace-nowrap">Index</th>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Original Bytes</th>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Mined Seed</th>
+              <th className="w-28 px-4 py-2 text-left font-semibold whitespace-nowrap">Seed Length</th>
+              <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Miner Wallet</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.microblocks?.map((block, idx) => {
+              const seed = data.seeds?.[idx];
+              const miner = data.miners?.[idx];
+              const seedHex = Array.isArray(seed) ? seed.map(b => b.toString(16).padStart(2, "0")).join("") : seed || "";
+              const seedLength = seed ? (Array.isArray(seed) ? seed.length : Math.floor(seed.length / 2)) : 0;
+              return (
+                <tr key={idx}>
+                <td className="px-4 py-2 whitespace-nowrap">{idx}</td>
+                <td className="px-4 py-2 font-mono break-all">{block}</td>
+                <td className="px-4 py-2 font-mono break-all">{seedHex}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{seedLength}</td>
+                <td className="px-4 py-2 break-all">{miner || ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       <h2 className="text-xl font-semibold">Miners</h2>
       <ul className="list-disc pl-5">
         {data.miners?.map((miner, idx) => (
