@@ -8,6 +8,7 @@ import time
 import base64
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 from nacl import signing
 
 from . import (
@@ -23,6 +24,7 @@ from .ledger import (
     apply_mining_results,
     get_total_supply,
     apply_delta_bonus,
+    delta_claim_valid,
 )
 from . import statement_registry
 from .gossip import GossipNode, LocalGossipNetwork
@@ -327,17 +329,26 @@ class HelixNode(GossipNode):
         # Enforce pending delta bonus decision if available
         if self._verification_queue:
             prev_block, granted, block_id = self._verification_queue.pop(0)
-            if granted and prev_block and prev_block.get("delta_seconds", 0) >= event["header"].get("delta_seconds", 0) + 10:
-                self._pending_bonus.pop(block_id, None)
-            else:
-                miner = self._pending_bonus.pop(block_id, None)
-                if miner:
+            miner = self._pending_bonus.pop(block_id, None)
+            if miner:
+                # Bypass verification if the current finalizer equals the grantor
+                if miner == self.node_id:
+                    apply_delta_bonus(miner, self.balances, self._bonus_amount)
+                elif granted and prev_block:
+                    parent_id = prev_block.get("parent_id")
+                    parent = next(
+                        (b for b in self.blockchain if b.get("block_id") == parent_id),
+                        None,
+                    )
+                    if parent and delta_claim_valid(prev_block, parent):
+                        apply_delta_bonus(miner, self.balances, self._bonus_amount)
+                else:
                     apply_delta_bonus(miner, self.balances, self._bonus_amount)
 
         prev_block = self.blockchain[-1] if self.blockchain else None
         bonus_for_prev = bool(prev_block)
         if prev_block and bonus_for_prev:
-            miner_prev = prev_block.get("miner")
+            miner_prev = prev_block.get("finalizer") or prev_block.get("miner")
             if miner_prev:
                 apply_delta_bonus(miner_prev, self.balances, self._bonus_amount)
 

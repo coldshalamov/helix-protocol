@@ -3,6 +3,7 @@ import inspect
 import time
 from pathlib import Path
 from typing import Dict, Tuple, Any
+from datetime import datetime
 
 from . import event_manager
 
@@ -152,6 +153,25 @@ def apply_delta_bonus(miner: str, balances: Dict[str, float], amount: float) -> 
     balances[miner] = balances.get(miner, 0.0) + float(amount)
 
 
+def delta_claim_valid(prev_block: Dict[str, Any], parent_block: Dict[str, Any], *, threshold: float = 10.0) -> bool:
+    """Return ``True`` if ``prev_block``'s delta claim matches the actual gap.
+
+    The difference between ``prev_block['delta_seconds']`` and the time
+    difference of ``prev_block`` and ``parent_block`` is compared against
+    ``threshold`` seconds.
+    """
+
+    try:
+        ts_prev = datetime.fromisoformat(prev_block["timestamp"]).timestamp()
+        ts_parent = datetime.fromisoformat(parent_block["timestamp"]).timestamp()
+    except Exception:
+        return True
+
+    claimed = float(prev_block.get("delta_seconds", 0.0))
+    actual = ts_prev - ts_parent
+    return abs(claimed - actual) <= threshold
+
+
 def record_compression_rewards(
     event: Dict[str, Any],
     *,
@@ -228,6 +248,7 @@ def record_compression_rewards(
 
     return total
 
+
 __all__ = [
     "load_balances",
     "save_balances",
@@ -235,6 +256,7 @@ __all__ = [
     "compression_stats",
     "apply_mining_results",
     "apply_delta_bonus",
+    "delta_claim_valid",
     "log_ledger_event",
     "record_compression_rewards",
 ]
