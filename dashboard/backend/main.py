@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 try:
     from helix.ledger import load_balances, get_total_supply
@@ -14,10 +15,20 @@ except Exception:  # pragma: no cover - optional fallback
     from event_manager import load_event  # type: ignore
     from utils.metrics import compression_ratio  # type: ignore
 
+try:
+    from helix.event_manager import submit_statement
+except Exception:  # pragma: no cover - optional fallback
+    from event_manager import submit_statement  # type: ignore
+
 app = FastAPI()
 
 EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
+
+
+class SubmitRequest(BaseModel):
+    statement: str
+    wallet_id: str
 
 
 @app.get("/api/statements")
@@ -80,6 +91,16 @@ async def get_statement(statement_id: str) -> dict:
         return json.loads(path.read_text())
     except Exception as exc:  # pragma: no cover - invalid file
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/submit")
+async def submit_statement_api(req: SubmitRequest) -> dict:
+    """Create a new statement event and return its ID."""
+    try:
+        event_id = submit_statement(req.statement, req.wallet_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "message": "Statement submitted", "event_id": event_id}
 
 
 @app.get("/api/balance/{wallet_id}")
