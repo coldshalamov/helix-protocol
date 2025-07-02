@@ -34,6 +34,17 @@ LAST_FINALIZED_TIME = 0.0
 # Hash of the last finalized statement. Used to link final blocks together.
 LAST_STATEMENT_HASH = GENESIS_HASH
 
+# Pending microblock information keyed by event_id
+pending_microblocks: Dict[str, Dict[int, bytes]] = {}
+pending_seeds: Dict[str, Dict[int, bytes]] = {}
+pending_miners: Dict[str, Dict[int, str]] = {}
+
+# Event metadata (block count and microblock size) keyed by event_id
+event_metadata: Dict[str, Dict[str, int]] = {}
+
+# File used to persist finalized statements
+FINALIZED_FILE = Path("finalized_statements.jsonl")
+
 
 def sha256(data: bytes) -> str:
     """Return hex encoded SHA-256 digest of ``data``."""
@@ -112,6 +123,13 @@ def create_event(
         "originator_pub": pub,
         "originator_sig": signature,
         "miners": [None] * count,
+    }
+
+    # Register event metadata for later microblock submissions
+    evt_id = header["statement_id"]
+    event_metadata[evt_id] = {
+        "block_count": count,
+        "microblock_size": microblock_size,
     }
 
     return event
@@ -233,6 +251,27 @@ def verify_statement(event: Dict[str, Any]) -> bool:
             return False
     return True
 
+
+def submit_microblock(event_id: str, index: int, seed: bytes, miner: str) -> None:
+    """Submit a mined microblock seed for ``event_id`` at ``index``."""
+
+    meta = event_metadata.get(event_id)
+    if not meta:
+        raise KeyError(f"Unknown event {event_id}")
+
+    size = meta.get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    block = G(seed, size)
+
+    pending_microblocks.setdefault(event_id, {})[index] = block
+    pending_seeds.setdefault(event_id, {})[index] = seed
+    pending_miners.setdefault(event_id, {})[index] = miner
+
+    if len(pending_microblocks[event_id]) == meta.get("block_count", 0):
+        try:
+            finalize_event(event_id)
+        except Exception as exc:  # pragma: no cover - logging
+            print(f"Failed to finalize {event_id}: {exc}")
+
 # ... all other functions from your provided code continue unmodified ...
 
 
@@ -266,7 +305,7 @@ def compute_reward(seed: bytes | Dict[str, Any], block_size: int | None = None) 
     return float(total)
 
 
-def finalize_event(
+def _legacy_finalize_event(
     event: Dict[str, Any],
     *,
     node_id: str | None = None,
@@ -354,4 +393,87 @@ def finalize_event(
     # if the recorded value differs from the actual gap by more than 10s.
 
     return payouts
+
+
+def _finalize_event_by_id(event_id: str) -> None:
+    """Finalize an event referenced by ``event_id`` using pending data."""
+
+    meta = event_metadata.get(event_id)
+    if not meta:
+        raise KeyError(f"Unknown event {event_id}")
+
+    block_count = meta.get("block_count", 0)
+    blocks = [pending_microblocks[event_id][i] for i in range(block_count)]
+    seeds = [pending_seeds[event_id][i] for i in range(block_count)]
+    miners = [pending_miners[event_id][i] for i in range(block_count)]
+
+    payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
+    statement = payload.decode("utf-8")
+    statement_id = sha256(statement.encode("utf-8"))
+
+    global LAST_STATEMENT_HASH, LAST_FINALIZED_TIME
+    now = time.time()
+    previous_hash = LAST_STATEMENT_HASH
+    delta_seconds = 0.0 if LAST_FINALIZED_TIME == 0.0 else now - LAST_FINALIZED_TIME
+    LAST_FINALIZED_TIME = now
+    LAST_STATEMENT_HASH = statement_id
+
+    finalize_statement(
+        statement_id,
+        statement,
+        previous_hash,
+        delta_seconds,
+        seeds,
+        miners,
+    )
+
+    try:
+        with open(FINALIZED_FILE, "a", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "statement_id": statement_id,
+                    "statement": statement,
+                    "previous_hash": previous_hash,
+                    "delta_seconds": delta_seconds,
+                    "seeds": [s.hex() for s in seeds],
+                    "miners": miners,
+                    "timestamp": now,
+                },
+                fh,
+            )
+            fh.write("\n")
+    except Exception as exc:  # pragma: no cover - logging only
+        print(f"Failed to record finalized statement: {exc}")
+
+    pending_microblocks.pop(event_id, None)
+    pending_seeds.pop(event_id, None)
+    pending_miners.pop(event_id, None)
+    event_metadata.pop(event_id, None)
+
+
+def finalize_event(
+    event: Any,
+    *,
+    node_id: str | None = None,
+    chain_file: str = "blockchain.jsonl",
+    events_dir: str | None = None,
+    balances_file: str | None = None,
+    delta_bonus: bool = False,
+    _bc: Any = blockchain,
+) -> Dict[str, float] | None:
+    """Finalize ``event`` which may be an event dict or an event id."""
+
+    if isinstance(event, dict):
+        return _legacy_finalize_event(
+            event,
+            node_id=node_id,
+            chain_file=chain_file,
+            events_dir=events_dir,
+            balances_file=balances_file,
+            delta_bonus=delta_bonus,
+            _bc=_bc,
+        )
+
+    _finalize_event_by_id(str(event))
+    return None
 
