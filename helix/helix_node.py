@@ -24,6 +24,7 @@ from .ledger import (
     apply_mining_results,
     update_total_supply,
     get_total_supply,
+    apply_delta_bonus,
 )
 from . import statement_registry
 from .gossip import GossipNode, LocalGossipNetwork
@@ -234,6 +235,11 @@ class HelixNode(GossipNode):
         self.balances: Dict[str, float] = load_balances(str(self.balances_file))
         self.fork_chain: List[Dict[str, Any]] | None = None
 
+        # Delta bonus tracking
+        self._pending_bonus: Dict[str, str] = {}
+        self._verification_queue: List[tuple[Dict[str, Any], bool, str]] = []
+        self._bonus_amount = 1.0
+
         gf = Path(genesis_file)
         if gf.exists():
             data = gf.read_bytes()
@@ -319,12 +325,31 @@ class HelixNode(GossipNode):
 
     def finalize_event(self, event: Dict[str, Any]) -> Dict[str, float]:
         before = bc.load_chain(str(self.chain_file))
+
+        # Enforce pending delta bonus decision if available
+        if self._verification_queue:
+            prev_block, granted, block_id = self._verification_queue.pop(0)
+            if granted and prev_block and prev_block.get("delta_seconds", 0) >= event["header"].get("delta_seconds", 0) + 10:
+                self._pending_bonus.pop(block_id, None)
+            else:
+                miner = self._pending_bonus.pop(block_id, None)
+                if miner:
+                    apply_delta_bonus(miner, self.balances, self._bonus_amount)
+
+        prev_block = self.blockchain[-1] if self.blockchain else None
+        bonus_for_prev = bool(prev_block)
+        if prev_block and bonus_for_prev:
+            miner_prev = prev_block.get("miner")
+            if miner_prev:
+                apply_delta_bonus(miner_prev, self.balances, self._bonus_amount)
+
         payouts = event_manager.finalize_event(
             event,
             node_id=self.node_id,
             chain_file=str(self.chain_file),
             events_dir=str(self.events_dir),
             balances_file=str(self.balances_file),
+            delta_bonus=bonus_for_prev,
         )
         chain_after = bc.load_chain(str(self.chain_file))
         if len(chain_after) > len(before):
@@ -338,6 +363,9 @@ class HelixNode(GossipNode):
                     "block_header": block_header,
                 }
             )
+            if prev_block:
+                self._verification_queue.append((prev_block, bonus_for_prev, block_header["block_id"]))
+            self._pending_bonus[block_header["block_id"]] = self.node_id
         self.balances = load_balances(str(self.balances_file))
         self.save_state()
         self.send_message({"type": GossipMessageType.FINALIZED, "event": event})

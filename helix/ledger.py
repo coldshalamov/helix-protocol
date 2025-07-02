@@ -107,6 +107,14 @@ def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> N
             refund = refunds[idx] if idx < len(refunds) else 0.0
             balances[old_miner] = balances.get(old_miner, 0.0) + refund
 
+
+def apply_delta_bonus(miner: str, balances: Dict[str, float], amount: float) -> None:
+    """Credit ``amount`` HLX delta bonus to ``miner``."""
+
+    if not miner:
+        return
+    balances[miner] = balances.get(miner, 0.0) + float(amount)
+
 __all__ = [
     "load_balances",
     "save_balances",
@@ -114,4 +122,5 @@ __all__ = [
     "update_total_supply",
     "compression_stats",
     "apply_mining_results",
+    "apply_delta_bonus",
 ]

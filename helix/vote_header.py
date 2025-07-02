@@ -15,12 +15,13 @@ def _encode_value(value: int) -> tuple[int, int, int]:
     return prefix, value, bit_len
 
 
-def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
-    """Encode YES and NO votes into a compact binary header.
+def encode_vote_header(yes_votes: float, no_votes: float, *, bonus: bool = False) -> bytes:
+    """Encode YES/NO votes and optional delta bonus flag into a binary header.
 
-    Votes are provided as HLX token amounts and are stored in 0.01 HLX units.
-    The returned bytes contain two length-prefixed integers as described in the
-    module documentation.
+    ``bonus`` indicates whether the previous verifier received their delta
+    bonus.  Votes are provided as HLX token amounts and are stored in ``0.01``
+    HLX units.  The returned bytes contain the bonus flag followed by two
+    length-prefixed integers as described in the module documentation.
     """
     yes_int = int(round(yes_votes * VOTE_SCALE))
     no_int = int(round(no_votes * VOTE_SCALE))
@@ -28,9 +29,11 @@ def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
     yes_prefix, yes_bits, yes_len = _encode_value(yes_int)
     no_prefix, no_bits, no_len = _encode_value(no_int)
 
-    total_bits = 5 + yes_len + 5 + no_len
+    total_bits = 1 + 5 + yes_len + 5 + no_len
 
     value = 0
+    # Bonus flag
+    value = (value << 1) | int(bool(bonus))
     # YES prefix
     value = (value << 5) | yes_prefix
     # YES value
@@ -46,8 +49,12 @@ def encode_vote_header(yes_votes: float, no_votes: float) -> bytes:
     return value.to_bytes(byte_len, "big")
 
 
-def decode_vote_header(data: bytes) -> Tuple[float, float]:
-    """Decode vote header produced by :func:`encode_vote_header`."""
+def decode_vote_header(data: bytes) -> Tuple[float, float, bool]:
+    """Decode vote header produced by :func:`encode_vote_header`.
+
+    Returns a tuple ``(yes_votes, no_votes, bonus_flag)`` where ``bonus_flag``
+    indicates whether the delta bonus was granted to the previous verifier.
+    """
     total_bits = len(data) * 8
     value = int.from_bytes(data, "big")
 
@@ -60,6 +67,8 @@ def decode_vote_header(data: bytes) -> Tuple[float, float]:
         index += n
         return part
 
+    bonus = bool(take(1))
+
     yes_prefix = take(5)
     yes_len = yes_prefix + 1
     yes_val = take(yes_len)
@@ -68,7 +77,7 @@ def decode_vote_header(data: bytes) -> Tuple[float, float]:
     no_len = no_prefix + 1
     no_val = take(no_len)
 
-    return yes_val / VOTE_SCALE, no_val / VOTE_SCALE
+    return yes_val / VOTE_SCALE, no_val / VOTE_SCALE, bonus
 
 
 __all__ = ["encode_vote_header", "decode_vote_header"]

@@ -117,9 +117,11 @@ class StatementRegistry:
 __all__ = ["StatementRegistry", "finalize_statement"]
 
 
-def finalize_statement(event: Dict[str, Any]) -> str:
-    """Mark ``event`` as finalized in a registry-independent way."""
+def finalize_statement(event: Dict[str, Any], *, delta_bonus: bool = False) -> str:
+    """Mark ``event`` as finalized and record the delta bonus flag."""
+
     statement_id = event.get("header", {}).get("statement_id")
     event["finalized"] = True
+    event["delta_bonus"] = bool(delta_bonus)
     return statement_id
 
