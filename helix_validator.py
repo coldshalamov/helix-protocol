@@ -13,7 +13,6 @@ def sha256_hex(data: bytes) -> str:
 
 def _seed_bytes(seed: Any) -> bytes:
     """Return raw bytes for ``seed`` stored in an event."""
-
     if seed is None:
         return b""
     if isinstance(seed, bytes):
@@ -70,9 +69,7 @@ def validate_event(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def print_summary(result: dict[str, Any]) -> None:
-    print(
-        f"Reassembly: {'✓' if result['statement_match'] else '✗'}"
-    )
+    print(f"Reassembly: {'✓' if result['statement_match'] else '✗'}")
     print(f"Hash match: {'✓' if result['hash_match'] else '✗'}")
     print(f"Seed validation: {'✓' if result['seed_valid'] else '✗'}")
 
@@ -90,7 +87,7 @@ def main(argv: List[str] | None = None) -> None:
     event = event_manager.load_event(str(path))
     result = validate_event(event)
     print_summary(result)
-    if not all((result["statement_match"], result["hash_match"], result["seed_valid"])):
+    if not all([result["statement_match"], result["hash_match"], result["seed_valid"]]):
         raise SystemExit(1)
 
 

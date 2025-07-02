@@ -24,6 +24,7 @@ from .ledger import (
     apply_mining_results,
     get_total_supply,
     apply_delta_bonus,
+    apply_delta_penalty,
     delta_claim_valid,
 )
 from . import statement_registry
@@ -139,7 +140,9 @@ def initialize_genesis_block(
         json.dump([block], fh, indent=2)
 
 
-def recover_from_chain(chain: List[Dict[str, Any]], events_dir: str) -> tuple[Dict[str, Dict[str, Any]], Dict[str, float]]:
+def recover_from_chain(
+    chain: List[Dict[str, Any]], events_dir: str
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, float]]:
     events: Dict[str, Dict[str, Any]] = {}
     balances: Dict[str, float] = {}
     path = Path(events_dir)
@@ -170,7 +173,9 @@ def _write_chain(chain: List[Dict[str, Any]], path: str) -> None:
             fh.write(json.dumps(blk) + "\n")
 
 
-def resolve_fork(old_chain: List[Dict[str, Any]], new_chain: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def resolve_fork(
+    old_chain: List[Dict[str, Any]], new_chain: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
     """Return the preferred chain between ``old_chain`` and ``new_chain``.
 
     The preferred chain is determined as follows:
@@ -302,7 +307,14 @@ class HelixNode(GossipNode):
     def _track_fork(self, block: Dict[str, Any]) -> None:
         if self.fork_chain is None:
             parent_id = block.get("parent_id")
-            idx = next((i for i, b in enumerate(self.blockchain) if b["block_id"] == parent_id), None)
+            idx = next(
+                (
+                    i
+                    for i, b in enumerate(self.blockchain)
+                    if b["block_id"] == parent_id
+                ),
+                None,
+            )
             if idx is None:
                 return
             self.fork_chain = self.blockchain[: idx + 1]
@@ -331,26 +343,38 @@ class HelixNode(GossipNode):
             prev_block, granted, block_id = self._verification_queue.pop(0)
             miner = self._pending_bonus.pop(block_id, None)
             if miner:
-                # Bypass verification if the current finalizer equals the grantor
-                if miner == self.node_id:
-                    apply_delta_bonus(miner, self.balances, self._bonus_amount)
-                elif granted and prev_block:
+                apply_delta_bonus(
+                    miner,
+                    self.balances,
+                    self._bonus_amount,
+                    block_hash=block_id,
+                )
+
+                if granted and prev_block:
                     parent_id = prev_block.get("parent_id")
                     parent = next(
                         (b for b in self.blockchain if b.get("block_id") == parent_id),
                         None,
                     )
-                    if parent and delta_claim_valid(prev_block, parent):
-                        apply_delta_bonus(miner, self.balances, self._bonus_amount)
-                else:
-                    apply_delta_bonus(miner, self.balances, self._bonus_amount)
+                    if parent and not delta_claim_valid(prev_block, parent):
+                        apply_delta_penalty(
+                            miner,
+                            self.balances,
+                            self._bonus_amount,
+                            block_hash=block_id,
+                        )
 
         prev_block = self.blockchain[-1] if self.blockchain else None
         bonus_for_prev = bool(prev_block)
         if prev_block and bonus_for_prev:
             miner_prev = prev_block.get("finalizer") or prev_block.get("miner")
             if miner_prev:
-                apply_delta_bonus(miner_prev, self.balances, self._bonus_amount)
+                apply_delta_bonus(
+                    miner_prev,
+                    self.balances,
+                    self._bonus_amount,
+                    block_hash=prev_block.get("block_id"),
+                )
 
         payouts = event_manager.finalize_event(
             event,
@@ -373,7 +397,9 @@ class HelixNode(GossipNode):
                 }
             )
             if prev_block:
-                self._verification_queue.append((prev_block, bonus_for_prev, block_header["block_id"]))
+                self._verification_queue.append(
+                    (prev_block, bonus_for_prev, block_header["block_id"])
+                )
             self._pending_bonus[block_header["block_id"]] = self.node_id
         self.balances = load_balances(str(self.balances_file))
         self.save_state()
@@ -404,7 +430,9 @@ class HelixNode(GossipNode):
                         print(f"Auto-finalizer: resolving bets for {evt_id}")
                         betting_interface.resolve_bets(evt_id)
                     except Exception as exc:  # pragma: no cover - logging only
-                        print(f"Auto-finalizer: bet resolution failed for {evt_id}: {exc}")
+                        print(
+                            f"Auto-finalizer: bet resolution failed for {evt_id}: {exc}"
+                        )
                 time.sleep(2.0)
 
         threading.Thread(target=_auto_loop, daemon=True).start()
