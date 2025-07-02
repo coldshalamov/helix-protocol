@@ -6,3 +6,5 @@ start cmd /k "cd /d %CD% && uvicorn dashboard.backend.main:app --reload || %APPD
 
 echo [ Helix Frontend Launching... ]
 start cmd /k "cd /d %CD%\dashboard\frontend && npm install && npm start"
+
+exit
