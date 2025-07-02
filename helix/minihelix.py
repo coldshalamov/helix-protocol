@@ -30,11 +30,12 @@ def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
     if len(seed) > 255:
         raise ValueError("seed must be 255 bytes or fewer")
 
+    # Generate a deterministic byte stream by hashing the previous output.
     output = b""
-    i = 0
+    current = seed
     while len(output) < N:
-        output += hashlib.sha256(seed + bytes([i])).digest()
-        i += 1
+        current = hashlib.sha256(current).digest()
+        output += current
     return output[:N]
 
 
