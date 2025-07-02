@@ -44,6 +44,7 @@ def run_pytest() -> int:
     if os.getenv("COV_FAIL_UNDER"):
         cmd.append(f"--cov-fail-under={os.environ['COV_FAIL_UNDER']}")
     proc = subprocess.run(cmd, capture_output=True, text=True)
+
     print(proc.stdout)
     if proc.stderr:
         print(proc.stderr, file=sys.stderr)

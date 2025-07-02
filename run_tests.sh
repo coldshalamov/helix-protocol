@@ -12,4 +12,4 @@ if [[ -n "${COV_FAIL_UNDER:-}" ]]; then
   COV_ARGS+=" --cov-fail-under=${COV_FAIL_UNDER}"
 fi
 
-pytest -vv ${COV_ARGS} tests/ "$@"
+pytest -v --tb=short $COV_ARGS tests/ "$@"
