@@ -6,11 +6,8 @@ from pathlib import Path
 
 from . import (
     event_manager,
-    nested_miner,
-    exhaustive_miner,
     betting_interface,
     signature_utils,
-    merkle_utils,
     helix_cli,
 )
 from .ledger import load_balances, compression_stats, get_total_supply
@@ -78,73 +75,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         if mismatch:
             print("block height mismatch with peers")
 
-    missed: list[str] = []
-    invalid: list[str] = []
-    if events_dir.exists():
-        for path in events_dir.glob("*.json"):
-            ev = event_manager.load_event(str(path))
-            eid = ev.get("header", {}).get("statement_id", path.stem)
-            for idx, block in enumerate(ev.get("microblocks", [])):
-                seed = ev.get("seeds", [None])[idx]
-                if seed is None:
-                    missed.append(f"{eid}:{idx}")
-                else:
-                    try:
-                        if not event_manager.verify_seed_chain(seed, block):
-                            invalid.append(f"{eid}:{idx}")
-                    except Exception:
-                        invalid.append(f"{eid}:{idx}")
-    if missed:
-        print("missed microblocks:")
-        for m in missed:
-            print(m)
-    if invalid:
-        print("invalid seeds:")
-        for m in invalid:
-            print(m)
 
 
-def cmd_mine(args: argparse.Namespace) -> None:
-    events_dir = Path(args.data_dir) / "events"
-    path = events_dir / f"{args.event_id}.json"
-    if not path.exists():
-        raise SystemExit("Event not found")
-    event = event_manager.load_event(str(path))
-    for idx, block in enumerate(event.get("microblocks", [])):
-        if event.get("seeds", [None])[idx] is not None:
-            continue
-        chain = exhaustive_miner.exhaustive_mine(block)
-        if chain is None:
-            print(f"No seed found for block {idx}")
-            continue
-        _depth = len(chain)
-        if not nested_miner.verify_nested_seed(chain, block):
-            print(f"Verification failed for block {idx}")
-            continue
-        event_manager.accept_mined_seed(event, idx, chain)
-    event_manager.save_event(event, str(events_dir))
 
 
-def cmd_remine_microblock(args: argparse.Namespace) -> None:
-    events_dir = Path(args.data_dir) / "events"
-    path = events_dir / f"{args.event_id}.json"
-    if not path.exists():
-        raise SystemExit("Event not found")
-    event = event_manager.load_event(str(path))
-    block = event["microblocks"][args.index]
-    chain = exhaustive_miner.exhaustive_mine(block)
-    if chain is None:
-        print("No seed found")
-        return
-    _depth = len(chain)
-    if not nested_miner.verify_nested_seed(chain, block):
-        print("Verification failed")
-        return
-    if event.get("seeds", [None])[args.index] is not None and not args.force:
-        print("seed already exists; use --force to replace")
-    else:
-        event_manager.accept_mined_seed(event, args.index, chain)
-        event_manager.save_event(event, str(events_dir))
 
 
 def cmd_view_chain(args: argparse.Namespace) -> None:
@@ -176,14 +110,8 @@ def cmd_view_event(args: argparse.Namespace) -> None:
 
     statement = event.get("statement", "")
     status = "resolved" if event.get("is_closed") else "open"
-    mined = sum(1 for m in event.get("mined_status", []) if m)
-    total = len(event.get("microblocks", []))
-
     print(f"Statement: {statement}")
     print(f"Status: {status}")
-    print(f"Microblocks: {mined}/{total}")
-    print("Microblock Details:")
-    print("Merkle Proof:")
     bets = event.get("bets", {})
     yes = len(bets.get("YES", []))
     no = len(bets.get("NO", []))
@@ -207,8 +135,7 @@ def cmd_reassemble(args: argparse.Namespace) -> None:
     if not path.exists():
         raise SystemExit("Event not found")
     event = event_manager.load_event(str(path))
-    statement = event_manager.reassemble_microblocks(event.get("microblocks", []))
-    print(statement)
+    print(event.get("statement", ""))
 
 
 def cmd_verify_statement(args: argparse.Namespace) -> None:
@@ -218,8 +145,7 @@ def cmd_verify_statement(args: argparse.Namespace) -> None:
         raise SystemExit("Event file not found")
     event = event_manager.load_event(str(path))
     _ = event_manager.verify_statement(event)
-    statement = event_manager.reassemble_microblocks(event.get("microblocks", []))
-    print(statement)
+    print(event.get("statement", ""))
 
 
 def cmd_token_stats(args: argparse.Namespace) -> None:
@@ -234,15 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor = sub.add_parser("doctor", help="Check node state")
     p_doctor.set_defaults(func=cmd_doctor)
 
-    p_mine = sub.add_parser("mine", help="Mine event")
-    p_mine.add_argument("event_id")
-    p_mine.set_defaults(func=cmd_mine)
 
-    p_rem = sub.add_parser("remine-microblock", help="Remine a microblock")
-    p_rem.add_argument("--event-id", required=True)
-    p_rem.add_argument("--index", type=int, required=True)
-    p_rem.add_argument("--force", action="store_true")
-    p_rem.set_defaults(func=cmd_remine_microblock)
 
     p_reasm = sub.add_parser("reassemble", help="Reassemble statement")
     group = p_reasm.add_mutually_exclusive_group(required=True)
@@ -277,8 +195,6 @@ __all__ = [
     "main",
     "build_parser",
     "cmd_doctor",
-    "cmd_mine",
-    "cmd_remine_microblock",
     "cmd_view_chain",
     "cmd_view_event",
     "cmd_reassemble",

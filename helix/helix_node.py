@@ -15,7 +15,6 @@ from . import (
     minihelix,
     nested_miner,
     signature_utils,
-    merkle,
 )
 from .config import GENESIS_HASH
 from .ledger import (

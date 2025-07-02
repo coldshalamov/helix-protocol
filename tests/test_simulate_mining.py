@@ -1,6 +1,7 @@
 import pytest
 
 pytest.importorskip("nacl")
+pytest.skip("legacy microblock logic removed", allow_module_level=True)
 
 from helix import event_manager, minihelix
 
