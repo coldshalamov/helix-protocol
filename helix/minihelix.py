@@ -22,36 +22,29 @@ except Exception:  # pragma: no cover - use slow Python implementations
             output += current
         return output[:N]
 
-    def mine_seed(target: bytes, *, max_attempts: int | None = None) -> Optional[bytes]:
-        """Brute force a seed generating ``target``."""
-        attempts = 0
-        N = len(target)
-        while max_attempts is None or attempts < max_attempts:
-            seed = os.urandom(1)
-            if G(seed, N) == target:
+    def mine_seed(target: bytes, *, max_attempts: int = 1_000_000, max_seed_len: int = 32) -> Optional[bytes]:
+        """Search for a seed that regenerates ``target``."""
+        length = len(target)
+        for _ in range(max_attempts):
+            seed_len = random.randint(1, max_seed_len)
+            seed = os.urandom(seed_len)
+            if G(seed, length) == target:
                 return seed
-            attempts += 1
         return None
 
     def verify_seed(seed: bytes, target: bytes) -> bool:
-        """Return True if seed regenerates target."""
+        """Return ``True`` if ``seed`` regenerates ``target``."""
         return G(seed, len(target)) == target
 
     def decode_header(hdr: bytes) -> Tuple[int, int]:
         """Decode a two-byte header into (flat_length, nested_length)."""
-        if len(hdr) != HEADER_SIZE:
-            raise ValueError("invalid header")
+        if len(hdr) < HEADER_SIZE:
+            raise ValueError("header too short")
         return hdr[0], hdr[1]
 
     def unpack_seed(seed: bytes, block_size: int) -> bytes:
         """Return the microblock produced by ``seed``."""
-        depth = seed[0]
-        length = seed[1]
-        payload = seed[2:2 + length]
-        current = payload
-        for _ in range(depth - 1):
-            current = G(current, block_size)
-        return current
+        return G(seed, block_size)
 
 
 def truncate_hash(data: bytes, length: int) -> bytes:
@@ -89,6 +82,7 @@ def mine_seed(target_block: bytes, max_attempts: int | None = 1_000_000) -> byte
 
 __all__ = [
     "DEFAULT_MICROBLOCK_SIZE",
+    "HEADER_SIZE",
     "G",
     "mine_seed",
     "verify_seed",
