@@ -76,7 +76,9 @@ def _update_total_supply(delta: float, path: str = "supply.json") -> None:
         mod = caller.f_globals.get("__name__") if caller else None
         func = caller.f_code.co_name if caller else None
         if mod != "chain_validator" or func != "validate_and_mint":
-            raise PermissionError("_update_total_supply can only be called from chain_validator.validate_and_mint")
+            raise PermissionError(
+                "_update_total_supply can only be called from chain_validator.validate_and_mint"
+            )
 
     total = get_total_supply(path) + float(delta)
     file = Path(path)
@@ -116,44 +118,125 @@ def compression_stats(events_dir: str) -> Tuple[int, float]:
     return saved, hlx
 
 
-def apply_mining_results(event: Dict[str, Any], balances: Dict[str, float]) -> None:
-    """Apply mining rewards and refunds from ``event`` to ``balances``.
+def apply_mining_results(
+    event: Dict[str, Any],
+    balances: Dict[str, float],
+    *,
+    journal_file: str = "ledger_journal.jsonl",
+) -> None:
+    """Apply compression rewards recorded in ``event`` to ``balances``.
 
-    ``event`` should contain ``miners`` listing the miner for each microblock.
-    If ``refund_miners`` is present, refund amounts are credited to the miner
-    that was replaced for that microblock.
+    Rewards are calculated from the byte savings of each mined microblock and
+    applied cumulatively.  If a microblock is further compressed later, only the
+    additional savings are rewarded to the new miner.  All payouts are logged to
+    ``journal_file`` with ``compression_reward`` as the reason.
     """
 
-    miners = event.get("miners")
-    if not miners:
+    miners = event.get("miners") or []
+    microblocks = event.get("microblocks") or []
+    seeds = event.get("seeds") or []
+    if not miners or not microblocks or not seeds:
         return
 
-    rewards = event.get("rewards", [])
-    refunds = event.get("refunds", [])
-    refund_miners = event.get("refund_miners", [None] * len(miners))
+    block_hash = event.get("block_header", {}).get(
+        "block_id", event.get("header", {}).get("statement_id", "")
+    )
 
-    net_reward = sum(rewards) - sum(refunds)
+    credited = event.setdefault("_credited_lengths", [0] * len(miners))
+
+    def _to_bytes(seed_entry: Any) -> bytes | None:
+        if seed_entry is None:
+            return None
+        if isinstance(seed_entry, (bytes, bytearray)):
+            return bytes(seed_entry)
+        if isinstance(seed_entry, list):
+            if not seed_entry:
+                return None
+            if isinstance(seed_entry[0], int):
+                return bytes(seed_entry)
+            return _to_bytes(seed_entry[-1])
+        return None
 
     for idx, miner in enumerate(miners):
-        if miner:
-            reward = rewards[idx] if idx < len(rewards) else 0.0
-            balances[miner] = balances.get(miner, 0.0) + reward
+        if not miner:
+            continue
 
-        old_miner = refund_miners[idx]
-        if old_miner:
-            refund = refunds[idx] if idx < len(refunds) else 0.0
-            balances[old_miner] = balances.get(old_miner, 0.0) + refund
+        seed_bytes = _to_bytes(seeds[idx]) if idx < len(seeds) else None
+        block_hex = microblocks[idx] if idx < len(microblocks) else ""
+        block_bytes = bytes.fromhex(block_hex) if block_hex else b""
+
+        if not seed_bytes or len(seed_bytes) >= len(block_bytes):
+            continue
+
+        saved = len(block_bytes) - len(seed_bytes)
+        already = credited[idx] if idx < len(credited) else 0
+        delta = saved - already
+        if delta <= 0:
+            continue
+
+        balances[miner] = balances.get(miner, 0.0) + float(delta)
+        log_ledger_event(
+            "mint",
+            miner,
+            float(delta),
+            "compression_reward",
+            block_hash,
+            journal_file=journal_file,
+        )
+        credited[idx] = saved
+
+    event["_credited_lengths"] = credited
 
 
-def apply_delta_bonus(miner: str, balances: Dict[str, float], amount: float) -> None:
-    """Credit ``amount`` HLX delta bonus to ``miner``."""
+def apply_delta_bonus(
+    miner: str,
+    balances: Dict[str, float],
+    amount: float,
+    *,
+    block_hash: str = "",
+    journal_file: str = "ledger_journal.jsonl",
+) -> None:
+    """Credit ``amount`` HLX delta bonus to ``miner`` and log the event."""
 
     if not miner:
         return
     balances[miner] = balances.get(miner, 0.0) + float(amount)
+    log_ledger_event(
+        "mint",
+        miner,
+        float(amount),
+        "delta_bonus",
+        block_hash,
+        journal_file=journal_file,
+    )
 
 
-def delta_claim_valid(prev_block: Dict[str, Any], parent_block: Dict[str, Any], *, threshold: float = 10.0) -> bool:
+def apply_delta_penalty(
+    miner: str,
+    balances: Dict[str, float],
+    amount: float,
+    *,
+    block_hash: str = "",
+    journal_file: str = "ledger_journal.jsonl",
+) -> None:
+    """Remove ``amount`` HLX from ``miner`` as a delta penalty."""
+
+    if not miner:
+        return
+    balances[miner] = balances.get(miner, 0.0) - float(amount)
+    log_ledger_event(
+        "burn",
+        miner,
+        float(amount),
+        "delta_penalty",
+        block_hash,
+        journal_file=journal_file,
+    )
+
+
+def delta_claim_valid(
+    prev_block: Dict[str, Any], parent_block: Dict[str, Any], *, threshold: float = 10.0
+) -> bool:
     """Return ``True`` if ``prev_block``'s delta claim matches the actual gap.
 
     The difference between ``prev_block['delta_seconds']`` and the time
@@ -256,6 +339,7 @@ __all__ = [
     "compression_stats",
     "apply_mining_results",
     "apply_delta_bonus",
+    "apply_delta_penalty",
     "delta_claim_valid",
     "log_ledger_event",
     "record_compression_rewards",
