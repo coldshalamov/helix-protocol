@@ -363,6 +363,113 @@ def cmd_payouts(args: argparse.Namespace) -> None:
     print(f"HLX burned: {burn_amount:.4f}")
 
 
+def cmd_replay(args: argparse.Namespace) -> None:
+    """Regenerate a finalized statement from its seeds."""
+
+    evt_path = Path("data/events") / f"{args.event_id}.json"
+    if not evt_path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(evt_path))
+    hdr = event.get("header", {})
+    size = hdr.get("microblock_size", event_manager.DEFAULT_MICROBLOCK_SIZE)
+
+    blocks: list[bytes] = []
+    for seed in event.get("seeds", []):
+        if not seed:
+            continue
+        if isinstance(seed, list):
+            raw = seed[0]
+            if isinstance(raw, str):
+                raw = bytes.fromhex(raw)
+            seed_bytes = raw
+        elif isinstance(seed, str):
+            seed_bytes = bytes.fromhex(seed)
+        else:
+            seed_bytes = seed
+        blocks.append(minihelix.G(seed_bytes, size))
+
+    statement_bytes = b"".join(blocks).rstrip(b"\x00")
+    statement = statement_bytes.decode("utf-8", "replace")
+
+    verified = event_manager.verify_statement(event)
+
+    orig_len = hdr.get("original_length", size * len(event.get("microblocks", [])))
+
+    comp_len = 0
+    for seed in event.get("seeds", []):
+        if not seed:
+            continue
+        if isinstance(seed, list):
+            for s in seed:
+                comp_len += len(bytes.fromhex(s) if isinstance(s, str) else s)
+        else:
+            comp_len += len(bytes.fromhex(seed) if isinstance(seed, str) else seed)
+
+    print("[\u2713] Reconstructed Statement:")
+    print(f'    "{statement}"')
+    if verified:
+        print("[\u2713] Merkle Root Verified")
+    else:
+        print("[!] Merkle Root Mismatch")
+    print(f"[\u2713] Compression Ratio: {orig_len} \u2192 {comp_len}")
+
+
+def cmd_inspect(args: argparse.Namespace) -> None:
+    """Display detailed information about a finalized event."""
+
+    evt_path = Path("data/events") / f"{args.event_id}.json"
+    if not evt_path.exists():
+        raise SystemExit("Event not found")
+
+    event = event_manager.load_event(str(evt_path))
+    hdr = event.get("header", {})
+
+    sid = hdr.get("statement_id", args.event_id)
+    block_count = hdr.get("block_count", len(event.get("microblocks", [])))
+    mined = sum(1 for s in event.get("seeds", []) if s)
+
+    rewards = sum(event.get("rewards", []))
+    penalties = sum(event.get("penalties", []))
+
+    yes_bets, no_bets = event_manager.get_bets_for_event(event)
+    yes_total = sum(b.get("amount", 0) for b in yes_bets)
+    no_total = sum(b.get("amount", 0) for b in no_bets)
+    outcome = "YES" if yes_total >= no_total else "NO"
+
+    size = hdr.get("microblock_size", event_manager.DEFAULT_MICROBLOCK_SIZE)
+    orig_len = hdr.get("original_length", size * block_count)
+    comp_len = 0
+    for seed in event.get("seeds", []):
+        if not seed:
+            continue
+        if isinstance(seed, list):
+            for s in seed:
+                comp_len += len(bytes.fromhex(s) if isinstance(s, str) else s)
+        else:
+            comp_len += len(bytes.fromhex(seed) if isinstance(seed, str) else seed)
+    pct = (1 - comp_len / orig_len) * 100 if orig_len else 0.0
+
+    finalizer = event.get("finalizer") or hdr.get("finalizer", "N/A")
+    delta = hdr.get("delta_seconds", "N/A")
+    prev_hash = hdr.get("previous_hash") or hdr.get("parent_id", "N/A")
+
+    miners = event.get("miners")
+
+    print(f"[i] Event: {sid}")
+    print(f"    Blocks: {block_count} ({mined} mined)")
+    print(f"    Final Vote: {outcome} ({yes_total} HLX vs {no_total} HLX)")
+    print(
+        f"    Compression: {orig_len} \u2192 {comp_len} bytes ({pct:.1f}%)"
+    )
+    print(f"    Finalizer: {finalizer}")
+    print(f"    Delta: {delta} seconds")
+    print(f"    Previous Hash: {prev_hash}")
+    if miners:
+        miner_list = ", ".join(m or "-" for m in miners)
+        print(f"    Miners: {miner_list}")
+
+
 def cmd_token_stats(args: argparse.Namespace) -> None:
     events_dir = Path(args.data_dir) / "events"
 
@@ -453,6 +560,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_final.add_argument("statement_id", help="Statement identifier")
     p_final.set_defaults(func=cmd_finalize)
 
+    p_replay = sub.add_parser("replay", help="Replay finalized event")
+    p_replay.add_argument("event_id", help="Event identifier")
+    p_replay.set_defaults(func=cmd_replay)
+
+    p_inspect = sub.add_parser("inspect", help="Inspect finalized event")
+    p_inspect.add_argument("event_id", help="Event identifier")
+    p_inspect.set_defaults(func=cmd_inspect)
+
     p_payouts = sub.add_parser("payouts", help="Distribute event payouts")
     p_payouts.add_argument("event_id", help="Event identifier")
     p_payouts.add_argument("winning_side", help="YES or NO")
@@ -496,6 +611,8 @@ __all__ = [
     "cmd_submit",
     "cmd_mine",
     "cmd_finalize",
+    "cmd_replay",
+    "cmd_inspect",
     "cmd_payouts",
     "cmd_view_tip",
     "cmd_balance",
