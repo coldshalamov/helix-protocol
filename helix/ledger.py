@@ -1,3 +1,6 @@
+from typing import Any, Dict
+
+
 def apply_mining_results(
     event: Dict[str, Any],
     balances: Dict[str, float],
