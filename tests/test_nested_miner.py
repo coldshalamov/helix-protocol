@@ -62,3 +62,24 @@ def test_verify_nested_seed_max_depth_limit():
         max_steps=len(chain) - 1,
         max_depth=nested_miner.MAX_DEPTH + 1,
     )
+
+
+def test_unpack_seed_chain_validate_output():
+    N = 4
+    seed = b"s"
+    intermediate = minihelix.G(seed, N)
+    target = minihelix.G(intermediate, N)
+
+    valid = bytes([2, len(seed)]) + seed + intermediate
+    assert nested_miner.unpack_seed_chain(valid, block_size=N) == target
+
+    forged_intermediate = (int.from_bytes(intermediate, "big") ^ 1).to_bytes(N, "big")
+    forged = bytes([2, len(seed)]) + seed + forged_intermediate
+
+    with pytest.raises(ValueError):
+        nested_miner.unpack_seed_chain(forged, block_size=N)
+
+    assert (
+        nested_miner.unpack_seed_chain(forged, block_size=N, validate_output=False)
+        == target
+    )
