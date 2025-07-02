@@ -80,18 +80,17 @@ const Statement = () => {
         <table className="min-w-full divide-y divide-gray-200 mt-2">
           <thead>
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Index</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Original Bytes</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mined Seed</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Seed Length</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Miner Wallet</th>
+              <th className="px-4 py-2">Index</th>
+              <th className="px-4 py-2">Original Bytes</th>
+              <th className="px-4 py-2">Mined Seed</th>
+              <th className="px-4 py-2">Seed Length</th>
+              <th className="px-4 py-2">Miner Wallet</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {data.microblocks && data.microblocks.map((block, idx) => {
-              const seeds = data.seeds || [];
-              const miners = data.miners || [];
-              const seed = seeds[idx];
+          <tbody>
+            {data.microblocks?.map((block, idx) => {
+              const seed = data.seeds?.[idx];
+              const miner = data.miners?.[idx];
               const seedHex = Array.isArray(seed)
                 ? seed.map((b) => b.toString(16).padStart(2, "0")).join("")
                 : seed || "";
@@ -102,11 +101,11 @@ const Statement = () => {
                 : 0;
               return (
                 <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-4 py-2 whitespace-nowrap">{idx}</td>
-                  <td className="px-4 py-2 whitespace-nowrap font-mono">{block}</td>
-                  <td className="px-4 py-2 whitespace-nowrap font-mono">{seedHex}</td>
-                  <td className="px-4 py-2 whitespace-nowrap">{seedLength}</td>
-                  <td className="px-4 py-2 whitespace-nowrap">{miners[idx] || ''}</td>
+                  <td className="px-4 py-2">{idx}</td>
+                  <td className="px-4 py-2 font-mono">{block}</td>
+                  <td className="px-4 py-2 font-mono">{seedHex}</td>
+                  <td className="px-4 py-2">{seedLength}</td>
+                  <td className="px-4 py-2">{miner || ''}</td>
                 </tr>
               );
             })}
@@ -116,7 +115,7 @@ const Statement = () => {
       <div>
         <h2 className="text-xl font-semibold">Miners</h2>
         <ul className="list-disc pl-5">
-          {data.miners && data.miners.map((miner, idx) => (
+          {data.miners?.map((miner, idx) => (
             <li key={idx}>{miner} - Seed Length: {data.seed_lengths[idx]}</li>
           ))}
         </ul>
@@ -145,7 +144,7 @@ const Wallet = () => {
   );
 };
 
-const App = () => {
+export default function App() {
   const [supply, setSupply] = useState(null);
 
   useEffect(() => {
@@ -165,6 +164,4 @@ const App = () => {
       </Routes>
     </Router>
   );
-};
-
-export default App;
+}
