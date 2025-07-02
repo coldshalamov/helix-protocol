@@ -95,65 +95,54 @@ def find_nested_seed(
     attempts: int = 10_000,
     max_steps: int = 1000,
 ) -> NestedSeed | None:
-    """Recursively search for a nested seed chain yielding ``target_block``.
+    """Return the shortest seed chain regenerating ``target_block``."""
 
-    This performs a depth-first exploration of candidate seeds.  At each
-    level a finite range of seeds is enumerated.  If applying :func:`G`
-    to a seed produces the ``target_block`` the search stops.  Otherwise
-    the function recurses with the intermediate output as the new target.
-    The search depth is limited by ``max_depth`` and ``max_steps``.
-    """
+    block_size = len(target_block)
+    best: NestedSeed | None = None
+    fallback: NestedSeed | None = None
+    best_len = float("inf")
 
-    def _seed_from_nonce(nonce: int, max_len: int) -> bytes | None:
-        """Return the seed corresponding to ``nonce``."""
-        for length in range(1, max_len + 1):
-            count = 256**length
-            if nonce < count:
-                return nonce.to_bytes(length, "big")
-            nonce -= count
-        return None
+    for flat_len in range(1, block_size + 1):
+        max_value = 256 ** flat_len
+        for i in range(max_value):
+            seed = i.to_bytes(flat_len, "big")
 
-    N = len(target_block)
-    max_depth = min(max_depth, max_steps)
+            # direct expansion
+            out = minihelix.unpack_seed(seed, block_size)
+            if out == target_block:
+                chain = [seed]
+                cand = NestedSeed(b"".join(chain), 1, _encode_chain(chain), chain)
+                if flat_len == block_size:
+                    if fallback is None:
+                        fallback = cand
+                elif flat_len < best_len:
+                    best = cand
+                    best_len = flat_len
 
-    g_cache: dict[bytes, bytes] = {}
+            # one level nested search
+            g_out = G(seed, block_size + minihelix.HEADER_SIZE)
+            _, nested_len = minihelix.decode_header(g_out[: minihelix.HEADER_SIZE])
+            if 0 < nested_len <= block_size:
+                nested_seed = g_out[
+                    minihelix.HEADER_SIZE : minihelix.HEADER_SIZE + nested_len
+                ]
+                nested_out = minihelix.unpack_seed(nested_seed, block_size)
+                if nested_out == target_block:
+                    chain = [seed, nested_seed]
+                    cand = NestedSeed(
+                        b"".join(chain), 2, _encode_chain(chain), chain
+                    )
+                    if flat_len == block_size:
+                        if fallback is None:
+                            fallback = cand
+                    elif flat_len < best_len:
+                        best = cand
+                        best_len = flat_len
 
-    def dfs(target: bytes, depth: int, nonce: int) -> list[bytes] | None:
-        """Return a seed chain generating ``target`` or ``None``."""
+        if best is not None and best_len <= flat_len:
+            break
 
-        for attempt in range(attempts):
-            seed = _seed_from_nonce(nonce + attempt, N)
-            if seed is None:
-                break
-            if not _seed_is_valid(seed, N):
-                continue
-
-            nxt = g_cache.get(seed)
-            if nxt is None:
-                nxt = G(seed, N)
-                g_cache[seed] = nxt
-
-            if nxt != target:
-                continue
-
-            if depth < max_depth:
-                sub = dfs(seed, depth + 1, 0)
-                if sub is not None:
-                    print(f"match depth={depth + len(sub)} size={len(seed)}")
-                    return sub + [seed]
-
-            print(f"match depth={depth} size={len(seed)}")
-            return [seed]
-
-        return None
-
-    chain = dfs(target_block, 1, start_nonce)
-    if chain is None:
-        return None
-
-    encoded = _encode_chain(chain)
-    chain_bytes = b"".join(chain)
-    return NestedSeed(chain_bytes, len(chain), encoded, chain)
+    return best if best is not None else fallback
 
 
 def verify_nested_seed(
@@ -237,9 +226,9 @@ def hybrid_mine(
 
     Returns a ``(seed, depth)`` tuple.
     """
-    chain = exhaustive_miner.exhaustive_mine(target_block, max_depth=max_depth)
-    if chain is not None:
-        return chain[0], len(chain)
+    result = find_nested_seed(target_block, max_depth=max_depth)
+    if result is not None:
+        return result.chain[0], result.depth
 
     seed = mine_seed(target_block, max_attempts=attempts)
     if seed is not None:
