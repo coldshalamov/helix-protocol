@@ -39,25 +39,39 @@ def encode_chain(chain: list[bytes]) -> bytes:
     return _encode_chain(chain)
 
 
-def _decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
-    """Decode encoded seed chain into list of seeds for verification."""
+def _decode_chain(
+    encoded: bytes, block_size: int, *, validate_output: bool = True
+) -> list[bytes]:
+    """Decode ``encoded`` seed chain into a list of seeds or microblocks."""
     if not encoded:
         return []
+
     depth = encoded[0]
     seed_len = encoded[1]
     seed = encoded[2 : 2 + seed_len]
     rest = encoded[2 + seed_len :]
+
     chain = [seed]
+    current = seed
     for i in range(depth - 1):
         start = i * block_size
-        chain.append(rest[start : start + block_size])
+        segment = rest[start : start + block_size]
+        if validate_output:
+            expected = G(current, block_size)
+            if segment != expected:
+                raise ValueError("invalid nested seed chain")
+        chain.append(segment)
+        current = segment
+
     return chain
 
 
-def decode_chain(encoded: bytes, block_size: int) -> list[bytes]:
+def decode_chain(
+    encoded: bytes, block_size: int, *, validate_output: bool = True
+) -> list[bytes]:
     """Public wrapper around :func:`_decode_chain`."""
 
-    return _decode_chain(encoded, block_size)
+    return _decode_chain(encoded, block_size, validate_output=validate_output)
 
 
 def _seed_is_valid(seed: bytes, block_size: int) -> bool:
@@ -227,7 +241,10 @@ def hybrid_mine(
 
 
 def unpack_seed_chain(
-    seed_chain: list[bytes] | bytes, *, block_size: int | None = None
+    seed_chain: list[bytes] | bytes,
+    *,
+    block_size: int | None = None,
+    validate_output: bool = True,
 ) -> bytes:
     """Return the microblock generated from ``seed_chain``.
 
@@ -251,15 +268,28 @@ def unpack_seed_chain(
                 else minihelix.DEFAULT_MICROBLOCK_SIZE
             )
         chain: list[bytes] = [seed]
+        current = seed
         for i in range(depth - 1):
             start = i * block_size
-            chain.append(rest[start : start + block_size])
+            segment = rest[start : start + block_size]
+            if validate_output:
+                expected = G(current, block_size)
+                if segment != expected:
+                    raise ValueError("invalid nested seed chain")
+            chain.append(segment)
+            current = segment
     else:
         chain = list(seed_chain)
         if block_size is None:
             block_size = (
                 len(chain[1]) if len(chain) > 1 else minihelix.DEFAULT_MICROBLOCK_SIZE
             )
+        if validate_output and len(chain) > 1:
+            current = chain[0]
+            for segment in chain[1:]:
+                if G(current, block_size) != segment:
+                    raise ValueError("invalid nested seed chain")
+                current = segment
 
     current = chain[0]
     for _ in range(len(chain)):
