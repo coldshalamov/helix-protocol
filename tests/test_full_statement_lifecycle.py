@@ -20,8 +20,6 @@ def test_full_statement_lifecycle(tmp_path):
     chain_file = tmp_path / "chain.jsonl"
     payouts = em.finalize_event(event, node_id="MINER", chain_file=str(chain_file))
 
-    root, _ = em.build_merkle_tree(event["microblocks"])
-    assert root == event["header"]["merkle_root"]
     assert em.reassemble_microblocks(event["microblocks"]) == statement
 
     assert event["payouts"] == payouts

@@ -1,6 +1,6 @@
 import json
 
-from helix import event_manager, merkle_utils, nested_miner, minihelix, betting_interface, signature_utils
+from helix import event_manager, nested_miner, minihelix, betting_interface, signature_utils
 import blockchain
 
 
@@ -66,13 +66,6 @@ def main() -> None:
         print("Final block data:")
         print(json.dumps(final_block, indent=2))
 
-    # Display Merkle root and proof for first microblock
-    root = event["header"]["merkle_root"]
-    proof = merkle_utils.generate_merkle_proof(0, event["merkle_tree"])
-    valid = merkle_utils.verify_merkle_proof(event["microblocks"][0], proof, root, 0)
-    print(f"Merkle root: {root.hex()}")
-    print("Proof for block 0:", [p.hex() for p in proof])
-    print("Proof valid:", valid)
 
 
 if __name__ == "__main__":

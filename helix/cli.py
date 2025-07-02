@@ -10,7 +10,6 @@ from . import (
     exhaustive_miner,
     betting_interface,
     signature_utils,
-    merkle_utils,
     helix_cli,
 )
 from .ledger import load_balances, compression_stats, get_total_supply
