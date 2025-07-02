@@ -1,39 +1,57 @@
+"""Pure Python fallback for the MiniHelix hash functions."""
+
 import hashlib
 import os
 import random
-from typing import Optional
+from typing import Optional, Tuple
 
-DEFAULT_MICROBLOCK_SIZE = 8
+try:  # pragma: no cover - optional native extension
+    from .minihelix import DEFAULT_MICROBLOCK_SIZE, HEADER_SIZE, G
+    from .minihelix import mine_seed, verify_seed, decode_header, unpack_seed
+except Exception:  # pragma: no cover - use slow Python implementations
+    DEFAULT_MICROBLOCK_SIZE = 8
+    HEADER_SIZE = 2
 
-
-def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
-    """Return ``N`` bytes generated from ``seed`` using MiniHelix."""
-    output = b""
-    current = hashlib.sha256(seed).digest()
-    while len(output) < N:
+    def G(seed: bytes, N: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
+        """Return ``N`` bytes of MiniHelix output for ``seed``."""
+        output = b""
+        current = hashlib.sha256(seed).digest()
         output += current
-        current = hashlib.sha256(current).digest()
-    return output[:N]
+        while len(output) < N:
+            current = hashlib.sha256(current).digest()
+            output += current
+        return output[:N]
 
-
-def mine_seed(target: bytes, max_attempts: int = 100000) -> Optional[bytes]:
-    """Brute-force a seed producing ``target`` using :func:`G`."""
-    N = len(target)
-    for length in range(1, N + 1):
-        max_value = min(256 ** length, max_attempts)
-        for i in range(max_value):
-            seed = i.to_bytes(length, "big")
+    def mine_seed(target: bytes, *, max_attempts: int | None = None) -> Optional[bytes]:
+        """Brute force a seed generating ``target``."""
+        attempts = 0
+        N = len(target)
+        while max_attempts is None or attempts < max_attempts:
+            seed = os.urandom(1)
             if G(seed, N) == target:
                 return seed
-        max_attempts -= max_value
-        if max_attempts <= 0:
-            break
-    return None
+            attempts += 1
+        return None
 
+    def verify_seed(seed: bytes, target: bytes) -> bool:
+        """Return True if seed regenerates target."""
+        return G(seed, len(target)) == target
 
-def verify_seed(seed: bytes, target: bytes) -> bool:
-    """Return ``True`` if ``seed`` regenerates ``target``."""
-    return G(seed, len(target)) == target
+    def decode_header(hdr: bytes) -> Tuple[int, int]:
+        """Decode a two-byte header into (flat_length, nested_length)."""
+        if len(hdr) != HEADER_SIZE:
+            raise ValueError("invalid header")
+        return hdr[0], hdr[1]
+
+    def unpack_seed(seed: bytes, block_size: int) -> bytes:
+        """Return the microblock produced by ``seed``."""
+        depth = seed[0]
+        length = seed[1]
+        payload = seed[2:2 + length]
+        current = payload
+        for _ in range(depth - 1):
+            current = G(current, block_size)
+        return current
 
 
 def truncate_hash(data: bytes, length: int) -> bytes:
@@ -77,4 +95,6 @@ __all__ = [
     "truncate_hash",
     "generate_microblock",
     "find_seed",
+    "decode_header",
+    "unpack_seed",
 ]
