@@ -1,7 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, useParams } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Link,
+  useParams,
+} from "react-router-dom";
 import axios from "axios";
 import EventList from "./components/EventList";
+
+const renderCompression = value => {
+  const cls =
+    value > 0
+      ? "text-green-600"
+      : value < 0
+      ? "text-red-500"
+      : "text-gray-500";
+  return (
+    <span className={cls} title={`Saved ${value}%`}>
+      {value}
+    </span>
+  );
+};
 
 const Navbar = ({ totalSupply }) => (
   <nav className="bg-gray-800 p-4 text-white flex justify-between items-center">
@@ -40,7 +60,7 @@ const Home = () => {
                   {st.statement_id}
                 </Link>
               </td>
-              <td>{st.compression_percent}</td>
+              <td>{renderCompression(st.compression_percent)}</td>
               <td>{st.delta_seconds}</td>
               <td>{st.timestamp}</td>
             </tr>
@@ -63,11 +83,26 @@ const Statement = () => {
 
   if (!data) return <div className="p-4">Loading...</div>;
 
+  const compressionPct =
+    data?.compression_percent !== undefined
+      ? data.compression_percent
+      : data?.original_size && data?.compressed_size
+      ? Math.round(
+          ((data.original_size - data.compressed_size) / data.original_size) *
+            100
+        )
+      : null;
+
   return (
     <div className="p-4 space-y-4">
       <h1 className="text-2xl font-bold">Statement {id}</h1>
       <div>Original Size: {data.original_size}</div>
       <div>Compressed Size: {data.compressed_size}</div>
+      {compressionPct !== null && (
+        <div>
+          Compression %: {renderCompression(compressionPct)}
+        </div>
+      )}
       <pre className="bg-gray-100 p-2 whitespace-pre-wrap">{data.reconstructed}</pre>
       <h2 className="text-xl font-semibold mt-4">Microblocks</h2>
       <table className="min-w-full divide-y divide-gray-200 mt-2">
