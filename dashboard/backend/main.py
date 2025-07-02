@@ -260,7 +260,7 @@ async def submit_statement(req: SubmitRequest) -> dict:
 @app.get("/api/balance/{wallet_id}")
 async def wallet_balance(wallet_id: str) -> dict:
     """Return HLX balance for ``wallet_id``."""
-    balances = load_balances("wallet.json")
+    balances = load_balances("balances.json")
     balance = balances.get(wallet_id)
     if balance is None:
         raise HTTPException(status_code=404, detail="Wallet not found")
