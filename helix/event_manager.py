@@ -1,3 +1,12 @@
+from pathlib import Path
+import logging
+from typing import List, Dict, Any
+
+from helix import signature_utils
+from helix.event_manager import load_event, create_event, save_event
+from helix.wallet_utils import load_wallet  # Assuming this exists or replace as needed
+
+
 def list_events(directory: str = "data") -> List[Dict[str, Any]]:
     """Return a summary of all events stored in ``directory``."""
 
@@ -48,7 +57,6 @@ def submit_statement(
         pub, priv = signature_utils.generate_keypair()
 
     if wallet_id and wallet_id != pub:
-        # Wallet mismatch is not fatal but warn via logging
         logging.warning("wallet_id does not match wallet file")
 
     event = create_event(statement, private_key=priv)

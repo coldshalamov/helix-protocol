@@ -103,7 +103,6 @@ async def get_statement(statement_id: str) -> dict:
 async def submit_statement(req: SubmitRequest) -> dict:
     """Create a new statement event and return its ID."""
     try:
-        # Optionally use wallet-based signing logic
         event = create_event(
             req.statement,
             microblock_size=req.microblock_size,
