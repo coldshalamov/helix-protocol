@@ -1,6 +1,8 @@
 import json
 import os
-from typing import Iterable, Set, List, Dict, Any
+from collections import deque
+from pathlib import Path
+from typing import Iterable, Set, List, Dict, Any, Tuple
 
 try:
     import blockchain as _bc
@@ -114,7 +116,7 @@ class StatementRegistry:
         return removed
 
 
-__all__ = ["StatementRegistry", "finalize_statement"]
+__all__ = ["StatementRegistry", "finalize_statement", "list_finalized_statements"]
 
 _FINALIZED: List[Dict[str, Any]] = []
 _FINALIZED_FILE = "finalized_statements.jsonl"
@@ -146,4 +148,54 @@ def finalize_statement(
     except Exception:  # pragma: no cover - optional persistence errors
         pass
     return statement_id
+
+
+def list_finalized_statements(limit: int = 10) -> List[Tuple[str, float, float, int]]:
+    """Return summary info for the latest finalized statements.
+
+    Parameters
+    ----------
+    limit:
+        Maximum number of statements to return. The most recent statements are
+        returned first.
+    """
+
+    path = Path(_FINALIZED_FILE)
+    if not path.exists() or limit <= 0:
+        return []
+
+    lines: deque[str] = deque(maxlen=limit)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    lines.append(line)
+    except Exception:  # pragma: no cover - optional persistence errors
+        return []
+
+    result: List[Tuple[str, float, float, int]] = []
+    for entry_line in reversed(lines):
+        try:
+            entry = json.loads(entry_line)
+        except Exception:
+            continue
+
+        sid = entry.get("statement_id")
+        ts = entry.get("timestamp")
+        delta = float(entry.get("delta_seconds", 0.0))
+
+        comp = 0
+        for seed in entry.get("seeds", []):
+            if not isinstance(seed, str):
+                continue
+            try:
+                comp += len(bytes.fromhex(seed))
+            except Exception:
+                continue
+
+        if sid is not None and ts is not None:
+            result.append((str(sid), float(ts), delta, comp))
+
+    return result
+
 

@@ -1,40 +1,57 @@
 import hashlib
 import os
 import random
+from typing import Tuple
 
-from .minihelix import DEFAULT_MICROBLOCK_SIZE, G
-
-
-def truncate_hash(data: bytes, length: int) -> bytes:
-    """Return the first `length` bytes of SHA256(data)."""
-    return hashlib.sha256(data).digest()[:length]
+DEFAULT_MICROBLOCK_SIZE = 4
+HEADER_SIZE = 2
 
 
-def generate_microblock(seed: bytes, block_size: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
-    """Return microblock for ``seed`` using the MiniHelix hash stream."""
+def G(seed: bytes, N: int) -> bytes:
+    """Return the first ``N`` bytes of the MiniHelix hash stream for ``seed``."""
     output = b""
     current = hashlib.sha256(seed).digest()
     output += current
-    while len(output) < block_size:
+    while len(output) < N:
         current = hashlib.sha256(current).digest()
         output += current
-    return output[:block_size]
+    return output[:N]
 
 
-def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> bytes | None:
-    """Search for a seed that generates `target` when truncated to len(target)."""
-    target_len = len(target)
-    for _ in range(attempts):
+def mine_seed(target: bytes, *, max_attempts: int = 1_000_000, max_seed_len: int = 32) -> bytes | None:
+    """Search for a seed that regenerates ``target``."""
+    length = len(target)
+    for _ in range(max_attempts):
         seed_len = random.randint(1, max_seed_len)
         seed = os.urandom(seed_len)
-        candidate = generate_microblock(seed)[:target_len]
-        if candidate == target:
+        if G(seed, length) == target:
             return seed
     return None
 
 
+def verify_seed(seed: bytes, target: bytes) -> bool:
+    """Return ``True`` if ``seed`` regenerates ``target``."""
+    return G(seed, len(target)) == target
+
+
+def decode_header(hdr: bytes) -> Tuple[int, int]:
+    """Decode a two-byte header into (flat_length, nested_length)."""
+    if len(hdr) < HEADER_SIZE:
+        raise ValueError("header too short")
+    return hdr[0], hdr[1]
+
+
+def unpack_seed(seed: bytes, block_size: int) -> bytes:
+    """Return the microblock produced by ``seed``."""
+    return G(seed, block_size)
+
+
 __all__ = [
-    "truncate_hash",
-    "generate_microblock",
-    "find_seed",
+    "DEFAULT_MICROBLOCK_SIZE",
+    "HEADER_SIZE",
+    "G",
+    "mine_seed",
+    "verify_seed",
+    "decode_header",
+    "unpack_seed",
 ]
