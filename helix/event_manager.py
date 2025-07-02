@@ -123,6 +123,7 @@ def create_event(
         "penalties": [0] * count,
         "rewards": [0.0] * count,
         "refunds": [0.0] * count,
+        "miners": [None] * count,
         "bets": {"YES": [], "NO": []},
         "originator_pub": originator_pub,
         "originator_sig": signature,
@@ -180,8 +181,12 @@ def accept_mined_seed(event: Dict[str, Any], index: int, encoded: bytes | List[b
     event["mined_status"][index] = True
     if miner:
         event.setdefault("refund_miners", []).append(miner)
+        if "miners" in event and index < len(event["miners"]):
+            event["miners"][index] = miner
     if all(event["mined_status"]):
         event["is_closed"] = True
+        if miner and verify_statement(event):
+            finalize_event(event, node_id=miner)
     return refund
 
 
@@ -254,26 +259,58 @@ def finalize_event(
     *,
     node_id: str = "NODE",
     chain_file: str = "blockchain.jsonl",
+    events_dir: str = "data/events",
     balances_file: str | None = None,
     _bc: Any | None = None,
 ) -> Dict[str, float]:
     bc_mod = _bc if _bc is not None else blockchain
+    if event.get("payouts"):
+        return event["payouts"]
 
-    parent_id = bc_mod.get_chain_tip(chain_file)
     evt_id = event["header"]["statement_id"]
-    block_header = {
-        "parent_id": parent_id,
-        "event_ids": [evt_id],
-        "previous_hash": event["header"].get("previous_hash"),
-        "delta_seconds": event["header"].get("delta_seconds"),
-        "miner": node_id,
+
+    mined_indices = [i for i, m in enumerate(event.get("mined_status", [])) if m]
+    last_index = max(mined_indices) if mined_indices else 0
+    miners = event.get("miners", [])
+    finalizer = miners[last_index] if last_index < len(miners) and miners[last_index] else node_id
+
+    ordered_seeds: List[bytes] = []
+    for i in range(event["header"].get("block_count", 0)):
+        enc = event["seeds"][i]
+        slen = enc[1]
+        seed = enc[2 : 2 + slen]
+        ordered_seeds.append(seed)
+
+    microblock_size = event["header"].get("microblock_size", DEFAULT_MICROBLOCK_SIZE)
+    regen_blocks = [G(s, microblock_size) for s in ordered_seeds]
+    assert reassemble_microblocks(regen_blocks) == event["statement"]
+
+    yes_bets, no_bets = betting_interface.get_bets_for_event(event)
+    yes_votes = sum(b.get("amount", 0) for b in yes_bets)
+    no_votes = sum(b.get("amount", 0) for b in no_bets)
+    vote_bit = int(yes_votes > no_votes)
+
+    chain = bc_mod.load_chain(chain_file)
+    previous_block = chain[-1] if chain else {"block_id": GENESIS_HASH, "timestamp": 0}
+    previous_hash = previous_block.get("block_id")
+    delta_seconds = (time.time() - previous_block.get("timestamp", 0)) % 256
+    delta_bonus_bit = 1
+
+    final_block = {
+        "event_id": evt_id,
+        "seeds": [s.hex() for s in ordered_seeds],
+        "vote_result": vote_bit,
+        "previous_hash": previous_hash,
+        "delta_seconds": delta_seconds,
+        "delta_bonus": delta_bonus_bit,
+        "finalizer": finalizer,
+        "timestamp": time.time(),
     }
-    digest = sha256(json.dumps(block_header, sort_keys=True).encode("utf-8"))
-    block_header["block_id"] = digest
-    bc_mod.append_block(block_header, path=chain_file)
+    final_block["hash"] = sha256(json.dumps(final_block, sort_keys=True).encode("utf-8"))
+    bc_mod.append_block(final_block, path=chain_file)
 
     reward_total = sum(event.get("rewards", [])) - sum(event.get("refunds", []))
-    payouts = {node_id: reward_total}
+    payouts = {finalizer: reward_total}
 
     event["payouts"] = payouts
     event["miner_reward"] = reward_total
@@ -281,6 +318,8 @@ def finalize_event(
     global LAST_FINALIZED_HASH, LAST_FINALIZED_TIME
     LAST_FINALIZED_HASH = evt_id
     LAST_FINALIZED_TIME = time.time()
+
+    resolve_payouts(evt_id, "YES" if vote_bit else "NO", event=event, events_dir=events_dir, balances_file=balances_file)
 
     return payouts
 
@@ -310,6 +349,7 @@ def resolve_payouts(
     event_id: str,
     winning_side: str,
     *,
+    event: Dict[str, Any] | None = None,
     events_dir: str = "data/events",
     balances_file: str = "data/balances.json",
     supply_file: str = "supply.json",
@@ -331,11 +371,11 @@ def resolve_payouts(
     if winning_side not in {"YES", "NO"}:
         raise ValueError("winning_side must be 'YES' or 'NO'")
 
-    evt_path = Path(events_dir) / f"{event_id}.json"
-    if not evt_path.exists():
-        raise FileNotFoundError(evt_path)
-
-    event = load_event(str(evt_path))
+    if event is None:
+        evt_path = Path(events_dir) / f"{event_id}.json"
+        if not evt_path.exists():
+            raise FileNotFoundError(evt_path)
+        event = load_event(str(evt_path))
 
     yes_bets, no_bets = get_bets_for_event(event)
 
@@ -361,13 +401,14 @@ def resolve_payouts(
 
     from . import ledger
 
-    balances = ledger.load_balances(balances_file)
+    balances = ledger.load_balances(balances_file) if balances_file else {}
     apply_mining_results(event, balances)
 
     for acct, amount in payouts.items():
         balances[acct] = balances.get(acct, 0.0) + float(amount)
 
-    ledger.save_balances(balances, balances_file)
+    if balances_file:
+        ledger.save_balances(balances, balances_file)
 
     burn_amount = losing_total + unaligned_total
     if burn_amount:

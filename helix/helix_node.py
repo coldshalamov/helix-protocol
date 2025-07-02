@@ -323,6 +323,7 @@ class HelixNode(GossipNode):
             event,
             node_id=self.node_id,
             chain_file=str(self.chain_file),
+            events_dir=str(self.events_dir),
             balances_file=str(self.balances_file),
         )
         chain_after = bc.load_chain(str(self.chain_file))
@@ -399,6 +400,8 @@ class HelixNode(GossipNode):
                 event_manager.accept_mined_seed(event, idx, [seed], miner=pub)
                 self.save_state()
                 self.forward_message(message)
+                if event.get("is_closed") and event_manager.verify_statement(event):
+                    self.finalize_event(event)
         elif mtype == GossipMessageType.FINALIZED:
             event = message.get("event")
             if event:
