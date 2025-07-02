@@ -39,7 +39,12 @@ def reset_test_dirs() -> None:
 
 def run_pytest() -> int:
     """Run pytest and print a simple summary."""
-    proc = subprocess.run(["pytest", "-vv"], capture_output=True, text=True)
+    proc = subprocess.run([
+        "pytest",
+        "-v",
+        "--tb=short",
+        "tests/",
+    ], capture_output=True, text=True)
     print(proc.stdout)
     if proc.stderr:
         print(proc.stderr, file=sys.stderr)
