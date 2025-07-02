@@ -1,7 +1,8 @@
 import json
 import hashlib
+import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Iterable
 
 from helix import minihelix, blockchain, event_manager
 from helix.ledger import load_balances, _update_total_supply, log_ledger_event
@@ -9,6 +10,91 @@ from helix.ledger import load_balances, _update_total_supply, log_ledger_event
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _pubkey_hash(pub: str | bytes) -> str:
+    """Return hex SHA-256 hash of ``pub``."""
+    if isinstance(pub, str):
+        pub = pub.encode("utf-8")
+    return sha256_hex(pub)
+
+
+def resolve_seed_collision(current: Dict[str, Any] | None, challenger: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the canonical seed info between ``current`` and ``challenger``.
+
+    Each mapping must contain ``seed`` (bytes), ``delta_seconds`` (float), and
+    ``pubkey`` (str).  ``current`` may be ``None`` indicating no existing seed.
+    The function returns the preferred mapping according to canonical
+    tie–breaking rules.
+    """
+
+    if current is None:
+        return challenger
+
+    a, b = current, challenger
+
+    # shorter seed wins
+    if len(b["seed"]) < len(a["seed"]):
+        return b
+    if len(b["seed"]) > len(a["seed"]):
+        return a
+
+    # lower delta_seconds wins
+    if b["delta_seconds"] < a["delta_seconds"]:
+        return b
+    if b["delta_seconds"] > a["delta_seconds"]:
+        return a
+
+    # lower pubkey hash wins
+    ph_a = _pubkey_hash(a["pubkey"])
+    ph_b = _pubkey_hash(b["pubkey"])
+    if ph_b < ph_a:
+        return b
+    if ph_b > ph_a:
+        return a
+
+    # lexicographically lower seed hash wins
+    sh_a = sha256_hex(a["seed"])
+    sh_b = sha256_hex(b["seed"])
+    if sh_b < sh_a:
+        return b
+    return a
+
+
+def validate_and_mint(
+    seed: bytes,
+    microblock: bytes,
+    wallet: str,
+    block_hash: str,
+    *,
+    journal_path: str = "ledger_journal.jsonl",
+    supply_path: str = "supply.json",
+) -> float:
+    """Mint HLX for valid compression proof and log the event.
+
+    Returns the minted amount.
+    """
+
+    if minihelix.G(seed, len(microblock)) != microblock:
+        raise ValueError("invalid seed for microblock")
+    if len(seed) >= len(microblock):
+        raise ValueError("seed does not achieve compression")
+
+    amount = float(len(microblock) - len(seed))
+
+    entry = {
+        "action": "mint",
+        "reason": "compression_reward",
+        "wallet": wallet,
+        "block": block_hash,
+        "timestamp": int(time.time()),
+        "amount": amount,
+    }
+    with open(journal_path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+    _update_total_supply(amount, path=supply_path)
+    return amount
 
 
 def verify_block_hash(block: Dict[str, Any], parent_id: str | None) -> None:
@@ -92,7 +178,7 @@ def compute_payouts(event: Dict[str, Any], miner: str | None) -> Dict[str, float
     return payouts
 
 
-def validate_and_mint(
+def validate_block_mint(
     block: Dict[str, Any],
     wallet: str,
     amount: float,
@@ -106,7 +192,6 @@ def validate_and_mint(
     The block hash is verified and a ledger event is recorded before the total
     supply is increased.
     """
-
     parent_id = block.get("parent_id")
     verify_block_hash(block, parent_id)
 
