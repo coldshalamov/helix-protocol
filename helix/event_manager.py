@@ -145,8 +145,8 @@ def finalize_event(
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(event, fh, indent=2)
 
-    # TODO: future finalizers should verify ``delta_seconds`` against wall clock
-    # time and revoke the grantor's pending delta bonus if dishonest.
+    # Later blocks verify this delta claim and may penalize the grantor
+    # if the recorded value differs from the actual gap by more than 10s.
 
     return payouts
 
