@@ -12,8 +12,13 @@ def truncate_hash(data: bytes, length: int) -> bytes:
 
 def generate_microblock(seed: bytes, block_size: int = DEFAULT_MICROBLOCK_SIZE) -> bytes:
     """Return microblock for ``seed`` using the MiniHelix hash stream."""
-
-    return G(seed, block_size)
+    output = b""
+    current = hashlib.sha256(seed).digest()
+    output += current
+    while len(output) < block_size:
+        current = hashlib.sha256(current).digest()
+        output += current
+    return output[:block_size]
 
 
 def find_seed(target: bytes, max_seed_len: int = 32, *, attempts: int = 1_000_000) -> bytes | None:
