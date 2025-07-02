@@ -30,6 +30,7 @@ class ExhaustiveMiner:
         self,
         target_block: bytes,
         *,
+        max_depth: int = 5,
         checkpoint_path: str | None = None,
     ) -> None:
         self.target = target_block
@@ -37,6 +38,7 @@ class ExhaustiveMiner:
         self.initial_seeds = list(_generate_initial_seeds())
         self.attempts = 0
         self.checkpoint_path = checkpoint_path
+        self.max_depth = max_depth
 
     def _load_start_index(self) -> int:
         if not self.checkpoint_path:
@@ -56,6 +58,8 @@ class ExhaustiveMiner:
 
     def _dfs(self, seed: bytes, chain: List[bytes]) -> Optional[List[bytes]]:
         """Depth-first search returning the seed chain or ``None``."""
+        if len(chain) >= self.max_depth:
+            return None
         self.attempts += 1
         output = G(seed, self.block_size)
         chain.append(seed)
@@ -64,7 +68,10 @@ class ExhaustiveMiner:
             print(f"Attempts for microblock: {self.attempts}")
             return result
         next_len = output[0]
-        if next_len == 0 or next_len > self.block_size:
+        if next_len == 0 or next_len > self.block_size or next_len > 2:
+            chain.pop()
+            return None
+        if len(chain) >= self.max_depth - 1:
             chain.pop()
             return None
         count = 256 ** next_len
@@ -101,12 +108,14 @@ class ExhaustiveMiner:
 def exhaustive_mine(
     target_block: bytes,
     *,
+    max_depth: int = 5,
     start_index: int = 0,
     checkpoint_path: str | None = None,
 ) -> Optional[List[bytes]]:
     """Convenience function returning the first valid seed chain."""
     miner = ExhaustiveMiner(
         target_block,
+        max_depth=max_depth,
         checkpoint_path=checkpoint_path,
     )
     return miner.mine(start_index=start_index)
