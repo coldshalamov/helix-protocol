@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import base64
+import math
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from helix import signature_utils
@@ -12,6 +16,7 @@ from helix.event_manager import (
     save_event,
     load_event,
     list_events as list_saved_events,
+    get_bets_for_event,
 )
 from helix.utils import compression_ratio
 
@@ -26,6 +31,13 @@ except Exception:  # pragma: no cover - optional fallback
     from event_manager import submit_statement as submit_event_statement  # type: ignore
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
@@ -115,6 +127,57 @@ async def list_statement_history(limit: int = 10) -> list[dict]:
     return results
 
 
+@app.get("/api/statements/active_status")
+async def list_active_statements() -> list[dict]:
+    """Return all active (unfinalized) statements sorted newest first."""
+    if not EVENTS_DIR.exists():
+        return []
+
+    entries: list[tuple[float, dict]] = []
+    for path in EVENTS_DIR.glob("*.json"):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        statement = event.get("statement", "")
+        micro_size = int(header.get("microblock_size", 0))
+        block_count = int(header.get("block_count", math.ceil(len(statement) / micro_size))) if micro_size else 0
+        seeds = event.get("seeds", [None] * block_count)
+        mined_blocks = []
+        for idx, seed in enumerate(seeds):
+            if not seed:
+                continue
+            if isinstance(seed, list):
+                seed_hex = bytes(seed).hex()
+            elif isinstance(seed, str):
+                seed_hex = seed
+            else:
+                seed_hex = bytes(seed).hex()
+            mined_blocks.append({"index": idx, "seed": seed_hex})
+        unmined_blocks = [idx for idx, seed in enumerate(seeds) if not seed]
+        header_b64 = base64.b64encode(json.dumps(header).encode("utf-8")).decode("ascii")
+        submitted_at = int(path.stat().st_mtime)
+        entry = {
+            "statement_id": header.get("statement_id", path.stem),
+            "statement": statement,
+            "header": header_b64,
+            "microblock_size": micro_size,
+            "microblock_count": block_count,
+            "mined_blocks": mined_blocks,
+            "unmined_blocks": unmined_blocks,
+            "submitted_at": submitted_at,
+            "wallet_id": event.get("originator_pub"),
+            "finalized": False,
+        }
+        entries.append((submitted_at, entry))
+
+    entries.sort(key=lambda x: x[0], reverse=True)
+    return [e for _, e in entries]
+
+
 @app.get("/api/events")
 async def list_events() -> list[dict]:
     """Return all finalized events."""
@@ -151,6 +214,29 @@ async def get_statement(statement_id: str) -> dict:
         return json.loads(path.read_text())
     except Exception as exc:  # pragma: no cover - invalid file
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/bets/status/{statement_id}")
+async def bet_status(statement_id: str) -> dict:
+    """Return total HLX bet on TRUE and FALSE for ``statement_id``."""
+    path = EVENTS_DIR / f"{statement_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    try:
+        event = load_event(str(path))
+    except Exception as exc:  # pragma: no cover - invalid file
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    yes_bets, no_bets = get_bets_for_event(event)
+    total_true = sum(float(b.get("amount", 0)) for b in yes_bets)
+    total_false = sum(float(b.get("amount", 0)) for b in no_bets)
+
+    return {
+        "statement_id": statement_id,
+        "total_true_bets": total_true,
+        "total_false_bets": total_false,
+    }
 
 
 @app.post("/api/submit")
