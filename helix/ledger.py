@@ -151,6 +151,83 @@ def apply_delta_bonus(miner: str, balances: Dict[str, float], amount: float) -> 
         return
     balances[miner] = balances.get(miner, 0.0) + float(amount)
 
+
+def record_compression_rewards(
+    event: Dict[str, Any],
+    *,
+    bonus: float = 0.0,
+    journal_file: str = "ledger_journal.jsonl",
+    supply_file: str = "supply.json",
+) -> float:
+    """Record compression rewards for ``event`` in the ledger.
+
+    Each microblock miner is credited with HLX equal to the bytes saved by its
+    submitted seed. Optionally ``bonus`` HLX is awarded to the miner of the last
+    microblock for compiling the final block. The total minted amount is also
+    added to the running supply.
+    """
+
+    if not event.get("is_closed"):
+        raise ValueError("event must be closed before rewarding")
+
+    header = event.get("header", {})
+    micro_size = int(
+        header.get("microblock_size", event_manager.DEFAULT_MICROBLOCK_SIZE)
+    )
+    seeds = event.get("seeds", [])
+    miners = event.get("miners", [None] * len(seeds))
+    block_hash = event.get("block_header", {}).get(
+        "block_id", header.get("statement_id", "")
+    )
+
+    total = 0.0
+
+    def _to_bytes(seed_entry: Any) -> bytes | None:
+        if seed_entry is None:
+            return None
+        if isinstance(seed_entry, (bytes, bytearray)):
+            return bytes(seed_entry)
+        if isinstance(seed_entry, list):
+            if not seed_entry:
+                return None
+            if isinstance(seed_entry[0], int):
+                return bytes(seed_entry)
+            # assume nested list of seeds, last element is innermost seed
+            return _to_bytes(seed_entry[-1])
+        return None
+
+    for idx, seed_entry in enumerate(seeds):
+        miner = miners[idx] if idx < len(miners) else None
+        seed_bytes = _to_bytes(seed_entry)
+        if miner and seed_bytes:
+            reward = float(max(0, micro_size - len(seed_bytes)))
+            if reward > 0:
+                log_ledger_event(
+                    "mint",
+                    miner,
+                    reward,
+                    "compression_reward",
+                    block_hash,
+                    journal_file=journal_file,
+                )
+                total += reward
+
+    if miners and miners[-1] and bonus:
+        log_ledger_event(
+            "mint",
+            miners[-1],
+            float(bonus),
+            "finalization_bonus",
+            block_hash,
+            journal_file=journal_file,
+        )
+        total += float(bonus)
+
+    if total:
+        _update_total_supply(total, path=supply_file)
+
+    return total
+
 __all__ = [
     "load_balances",
     "save_balances",
@@ -159,4 +236,5 @@ __all__ = [
     "apply_mining_results",
     "apply_delta_bonus",
     "log_ledger_event",
+    "record_compression_rewards",
 ]
