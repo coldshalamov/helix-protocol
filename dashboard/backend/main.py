@@ -4,16 +4,30 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 try:
     from helix.ledger import load_balances, get_total_supply
 except Exception:  # pragma: no cover - optional fallback
     from ledger import load_balances, get_total_supply  # type: ignore
 
+from helix.event_manager import list_events, submit_statement
+
 app = FastAPI()
 
 EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
+
+
+class StatementSubmission(BaseModel):
+    statement: str
+    wallet_id: str
+
+
+@app.get("/api/events")
+def get_events() -> list[dict]:
+    """Return all stored events."""
+    return list_events()
 
 
 @app.get("/api/statements")
@@ -67,6 +81,16 @@ async def total_supply() -> dict:
     """Return total HLX supply."""
     supply = get_total_supply("supply.json")
     return {"total_supply": supply}
+
+
+@app.post("/api/submit")
+async def submit(submission: StatementSubmission) -> dict:
+    """Submit a new statement and return its identifier."""
+    try:
+        statement_id = submit_statement(submission.statement, submission.wallet_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"statement_id": statement_id}
 
 
 if __name__ == "__main__":  # pragma: no cover - manual start

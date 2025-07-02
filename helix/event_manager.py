@@ -559,3 +559,38 @@ def replay_and_remine(statement_id: str) -> None:
         len(blocks),
     )
 
+
+def list_events(directory: str = "data/events") -> List[Dict[str, Any]]:
+    """Return all stored events from ``directory``."""
+
+    events: List[Dict[str, Any]] = []
+    path = Path(directory)
+    if not path.is_dir():
+        return events
+
+    for evt_path in sorted(path.glob("*.json")):
+        try:
+            events.append(load_event(str(evt_path)))
+        except Exception:
+            continue
+    return events
+
+
+def submit_statement(statement: str, wallet_id: str | None = None) -> str:
+    """Create and persist an event for ``statement``.
+
+    ``wallet_id`` is currently informational and not validated.
+    Returns the new statement identifier.
+    """
+
+    try:
+        from . import signature_utils
+
+        _, priv = signature_utils.load_keys("wallet.json")
+    except Exception:
+        priv = None
+
+    event = create_event(statement, private_key=priv)
+    save_event(event, directory="data/events")
+    return event["header"]["statement_id"]
+
