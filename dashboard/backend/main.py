@@ -49,6 +49,12 @@ class SubmitRequest(BaseModel):
     wallet_id: str
     microblock_size: int = 3
 
+class VoteRequest(BaseModel):
+    wallet_id: str
+    event_id: str
+    amount: float
+    choice: str  # "YES" or "NO"
+
 class GenerateRequest(BaseModel):
     seed: str
 
@@ -193,11 +199,9 @@ async def list_active_statements() -> list[dict]:
     entries.sort(key=lambda x: x[0], reverse=True)
     return [e for _, e in entries]
 
-
 @app.get("/api/pending")
 async def list_pending() -> list[dict]:
     """Return pending statements with encoded microblocks."""
-
     if not EVENTS_DIR.exists():
         return []
 
@@ -294,6 +298,43 @@ async def bet_status(statement_id: str) -> dict:
         "total_false_bets": total_false,
     }
 
+@app.post("/api/vote")
+async def submit_vote(req: VoteRequest):
+    """Accept a vote on a pending statement. Deducts HLX from wallet and records the vote."""
+    path = EVENTS_DIR / f"{req.event_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    try:
+        event = load_event(str(path))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load event: {exc}")
+
+    # Load wallet balances
+    balances = load_balances("balances.json")
+    balance = balances.get(req.wallet_id, 0.0)
+
+    if balance < req.amount:
+        raise HTTPException(status_code=400, detail="Insufficient HLX balance")
+
+    # Deduct amount
+    balances[req.wallet_id] = balance - req.amount
+
+    # Record vote
+    if "votes" not in event:
+        event["votes"] = []
+    event["votes"].append({
+        "wallet_id": req.wallet_id,
+        "amount": req.amount,
+        "choice": req.choice,
+        "timestamp": int(time.time()),
+    })
+
+    # Save updated event and balances
+    save_event(event, str(EVENTS_DIR))
+    Path("balances.json").write_text(json.dumps(balances, indent=2))
+
+    return {"success": True, "new_balance": balances[req.wallet_id]}
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest) -> dict:
