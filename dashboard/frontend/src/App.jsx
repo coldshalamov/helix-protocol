@@ -26,7 +26,7 @@ const renderCompression = value => {
   );
 };
 
-const Navbar = ({ totalSupply }) => (
+const Navbar = ({ walletBalance }) => (
   <nav className="bg-gray-800 p-4 text-white flex justify-between items-center">
     <div className="space-x-4">
       <Link to="/" className="hover:underline">Home</Link>
@@ -35,7 +35,7 @@ const Navbar = ({ totalSupply }) => (
       <Link to="/pending" className="hover:underline">Pending</Link>
       <Link to="/wallet/1" className="hover:underline">Wallet</Link>
     </div>
-    <div>Total HLX: {totalSupply ?? '123.45'}</div>
+    <div>Total HLX: {walletBalance ?? 'Loading...'}</div>
   </nav>
 );
 
@@ -191,23 +191,21 @@ const Wallet = () => {
 };
 
 export default function App() {
-  const [supply, setSupply] = useState(null);
-  const [error, setError] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(null);
 
   useEffect(() => {
-    axios.get("/api/supply")
-      .then(res => setSupply(res.data.total_supply))
+    axios.get("/api/balance/1")
+      .then(res => setWalletBalance(res.data.balance))
       .catch(err => {
         console.error(err);
-        setError("Failed to load total supply.");
+        setWalletBalance("Error");
       });
   }, []);
 
   return (
     <Router>
-      <Navbar totalSupply={supply} />
+      <Navbar walletBalance={walletBalance} />
       <DiceRoller />
-      {error && <div className="p-4 text-red-600">{error}</div>}
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/events" element={<EventList />} />
