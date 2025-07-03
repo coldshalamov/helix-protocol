@@ -1,20 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-const BG_COLORS = [
-  "bg-red-200",
-  "bg-green-200",
-  "bg-blue-200",
-  "bg-yellow-200",
-  "bg-purple-200",
-  "bg-pink-200",
-  "bg-indigo-200",
-  "bg-teal-200",
-  "bg-orange-200",
-  "bg-emerald-200",
-];
-
-const COLOR_CYCLE = ["#00AEEF", "#006494", "#111111", "#00E0FF"];
 
 function decodeBlock(encoded) {
   try {
@@ -30,7 +16,6 @@ function decodeBlock(encoded) {
 }
 
 function StatementBox({ stmt }) {
-  const mined = Array.isArray(stmt.mined_status) ? stmt.mined_status : [];
   const seeds = Array.isArray(stmt.seeds)
     ? stmt.seeds
     : Array.isArray(stmt.mined_blocks)
@@ -70,10 +55,12 @@ function StatementBox({ stmt }) {
     segments.push(fullText.slice(i, i + blockSize));
   }
 
-  const minedCount = mined.filter(Boolean).length;
-  const blockCount = segments.length;
+  const blockCount = stmt.microblock_count || Math.ceil(fullText.length / blockSize);
+  const minedCount = Array.isArray(seeds)
+    ? seeds.filter((s) => s && s.seed).length
+    : 0;
 
-  const totalBlocks = stmt.microblock_count || Math.ceil(fullText.length / blockSize);
+  const totalBlocks = blockCount;
   const statusBar = [];
   for (let i = 0; i < totalBlocks; i++) {
     const seedObj = seeds.find((s) => s && s.index === i);
@@ -101,26 +88,19 @@ function StatementBox({ stmt }) {
       </div>
       <div className="flex">
         <div className="flex-1 overflow-x-auto">
-          <div className="flex space-x-1 font-mono text-sm">
+          <div className="flex flex-wrap font-mono text-sm">
             {segments.map((seg, i) => (
-              <span key={i} style={{ color: COLOR_CYCLE[i % COLOR_CYCLE.length] }}>{seg}</span>
+              <span
+                key={i}
+                className="px-1 whitespace-pre"
+                style={{
+                  backgroundColor: i % 2 === 0 ? "#D0F0FF" : "#FFFFFF",
+                  color: "#000000",
+                }}
+              >
+                {seg}
+              </span>
             ))}
-          </div>
-          <div className="flex space-x-1 mt-1 text-xs">
-            {segments.map((_, i) => {
-              const color = BG_COLORS[i % BG_COLORS.length];
-              const isMined = mined[i];
-              const seedVal = seeds[i]?.seed ?? seeds[i];
-              const cls = isMined ? color : "bg-gray-100";
-              return (
-                <span key={i} className={`${cls} px-1 flex flex-col items-center`}>
-                  {isMined ? "Mined" : "Pending"}
-                  {isMined && (
-                    <span className="text-[10px] break-all">{seedVal}</span>
-                  )}
-                </span>
-              );
-            })}
           </div>
         </div>
         <div className="ml-4 flex flex-col items-center">
