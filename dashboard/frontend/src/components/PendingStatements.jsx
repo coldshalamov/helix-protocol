@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-const COLORS = [
+const BG_COLORS = [
   "bg-red-200",
   "bg-green-200",
   "bg-blue-200",
@@ -14,9 +14,22 @@ const COLORS = [
   "bg-emerald-200",
 ];
 
+const COLOR_CYCLE = ["#00AEEF", "#006494", "#111111", "#00E0FF"];
+
+function decodeBlock(encoded) {
+  try {
+    const bin = atob(encoded);
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  } catch {
+    const bytes = [];
+    for (let i = 0; i < encoded.length; i += 2) {
+      bytes.push(parseInt(encoded.slice(i, i + 2), 16));
+    }
+    return Uint8Array.from(bytes);
+  }
+}
+
 function StatementBox({ stmt }) {
-  const text = stmt.statement || "";
-  const size = stmt.microblock_size || 1;
   const mined = Array.isArray(stmt.mined_status) ? stmt.mined_status : [];
   const seeds = Array.isArray(stmt.seeds)
     ? stmt.seeds
@@ -27,15 +40,40 @@ function StatementBox({ stmt }) {
   const yesTotal = bets.YES || bets.TRUE || stmt.total_yes || 0;
   const noTotal = bets.NO || stmt.total_no || 0;
 
+  let decodedBlocks = [];
+  if (Array.isArray(stmt.microblocks)) {
+    decodedBlocks = stmt.microblocks.map((b) => decodeBlock(b));
+  } else if (stmt.statement) {
+    const size = stmt.microblock_size || 1;
+    for (let i = 0; i < stmt.statement.length; i += size) {
+      decodedBlocks.push(
+        Uint8Array.from(stmt.statement.slice(i, i + size), (c) =>
+          c.charCodeAt(0)
+        )
+      );
+    }
+  }
+
+  const blockSize = decodedBlocks[0] ? decodedBlocks[0].length : 1;
+  let payloadBytes = [];
+  decodedBlocks.forEach((b) => {
+    payloadBytes = payloadBytes.concat(Array.from(b));
+  });
+  while (payloadBytes.length && payloadBytes[payloadBytes.length - 1] === 0) {
+    payloadBytes.pop();
+  }
+  const textDecoder = new TextDecoder("utf-8", { fatal: false });
+  const fullText = textDecoder.decode(Uint8Array.from(payloadBytes));
+
   const segments = [];
-  for (let i = 0; i < text.length; i += size) {
-    segments.push(text.slice(i, i + size));
+  for (let i = 0; i < fullText.length; i += blockSize) {
+    segments.push(fullText.slice(i, i + blockSize));
   }
 
   const minedCount = mined.filter(Boolean).length;
   const blockCount = segments.length;
 
-  const totalBlocks = stmt.microblock_count || Math.ceil(text.length / size);
+  const totalBlocks = stmt.microblock_count || Math.ceil(fullText.length / blockSize);
   const statusBar = [];
   for (let i = 0; i < totalBlocks; i++) {
     const seedObj = seeds.find((s) => s && s.index === i);
@@ -64,29 +102,25 @@ function StatementBox({ stmt }) {
       <div className="flex">
         <div className="flex-1 overflow-x-auto">
           <div className="flex space-x-1 font-mono text-sm">
-            {segments.map((seg, i) => {
-              const color = COLORS[i % COLORS.length];
-              const cls = mined[i] ? `${color} text-black` : "bg-gray-100";
-              return (
-                <span key={i} className={`${cls} px-1`}>{seg}</span>
-              );
-            })}
+            {segments.map((seg, i) => (
+              <span key={i} style={{ color: COLOR_CYCLE[i % COLOR_CYCLE.length] }}>{seg}</span>
+            ))}
           </div>
           <div className="flex space-x-1 mt-1 text-xs">
             {segments.map((_, i) => {
-              const color = COLORS[i % COLORS.length];
-            const isMined = mined[i];
-            const seedVal = seeds[i]?.seed ?? seeds[i];
-            const cls = isMined ? color : "bg-gray-100";
-            return (
-              <span key={i} className={`${cls} px-1 flex flex-col items-center`}>
-                {isMined ? "Mined" : "Pending"}
-                {isMined && (
-                  <span className="text-[10px] break-all">{seedVal}</span>
-                )}
-              </span>
-            );
-          })}
+              const color = BG_COLORS[i % BG_COLORS.length];
+              const isMined = mined[i];
+              const seedVal = seeds[i]?.seed ?? seeds[i];
+              const cls = isMined ? color : "bg-gray-100";
+              return (
+                <span key={i} className={`${cls} px-1 flex flex-col items-center`}>
+                  {isMined ? "Mined" : "Pending"}
+                  {isMined && (
+                    <span className="text-[10px] break-all">{seedVal}</span>
+                  )}
+                </span>
+              );
+            })}
           </div>
         </div>
         <div className="ml-4 flex flex-col items-center">

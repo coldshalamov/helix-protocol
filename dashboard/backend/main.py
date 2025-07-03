@@ -189,6 +189,52 @@ async def list_active_statements() -> list[dict]:
     entries.sort(key=lambda x: x[0], reverse=True)
     return [e for _, e in entries]
 
+
+@app.get("/api/pending")
+async def list_pending() -> list[dict]:
+    """Return pending statements with encoded microblocks."""
+
+    if not EVENTS_DIR.exists():
+        return []
+
+    results: list[dict] = []
+    for path in EVENTS_DIR.glob("*.json"):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        blocks = event.get("microblocks", [])
+        microblocks = [base64.b64encode(b).decode("ascii") for b in blocks]
+        seeds = []
+        for idx, seed in enumerate(event.get("seeds", [])):
+            if not seed:
+                continue
+            if isinstance(seed, (bytes, bytearray)):
+                seed_hex = seed.hex()
+            elif isinstance(seed, str):
+                seed_hex = seed
+            else:
+                seed_hex = bytes(seed).hex()
+            seeds.append({"index": idx, "seed": seed_hex})
+        block_size = len(blocks[0]) if blocks else header.get("microblock_size", 0)
+        payload_length = header.get("payload_length") or sum(len(b) for b in blocks)
+        results.append(
+            {
+                "statement_id": header.get("statement_id"),
+                "author": header.get("author_id"),
+                "previous_hash": header.get("previous_hash"),
+                "microblocks": microblocks,
+                "block_size": block_size,
+                "payload_length": payload_length,
+                "seeds": seeds,
+            }
+        )
+
+    return results
+
 @app.get("/api/events")
 async def list_events() -> list[dict]:
     if not EVENTS_DIR.exists():
