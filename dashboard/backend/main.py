@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import base64
+import math
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -13,6 +17,7 @@ from helix.event_manager import (
     save_event,
     load_event,
     list_events as list_saved_events,
+    get_bets_for_event,
 )
 from helix.utils import compression_ratio
 
@@ -27,10 +32,13 @@ except Exception:
     from event_manager import submit_statement as submit_event_statement  # type: ignore
 
 app = FastAPI()
-
-# ---------------------
-# API ROUTES COME FIRST
-# ---------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 EVENTS_DIR = Path("data/events")
 FINALIZED_FILE = Path("finalized_statements.jsonl")
@@ -42,6 +50,7 @@ class SubmitRequest(BaseModel):
 
 @app.post("/api/submit")
 async def submit_statement(req: SubmitRequest) -> dict:
+    """Create a new statement event and return its ID."""
     try:
         event = create_event(
             req.statement,
@@ -77,6 +86,109 @@ async def list_statements(limit: int = 10) -> list[dict]:
         )
     return statements
 
+@app.get("/api/statements/history")
+async def list_statement_history(limit: int = 10) -> list[dict]:
+    """Return finalized statement history sorted from newest to oldest."""
+    if not FINALIZED_FILE.exists() or limit <= 0:
+        return []
+
+    entries: list[dict] = []
+    for line in FINALIZED_FILE.read_text().splitlines():
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        if "timestamp" not in item:
+            continue
+        entries.append(item)
+
+    entries.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
+    results: list[dict] = []
+    for entry in entries[:limit]:
+        sid = entry.get("statement_id")
+        statement = entry.get("statement")
+        seeds = entry.get("seeds")
+        compression = entry.get("compression_ratio")
+        path = EVENTS_DIR / f"{sid}.json"
+        if path.exists():
+            try:
+                event = load_event(str(path))
+                statement = event.get("statement", statement)
+                seeds = event.get("seeds", seeds)
+                seeds = [
+                    s.hex() if isinstance(s, (bytes, bytearray)) else s
+                    for s in seeds
+                ]
+                compression = compression_ratio(event)
+            except Exception:
+                pass
+
+        if isinstance(seeds, list):
+            seeds = [s.hex() if isinstance(s, (bytes, bytearray)) else s for s in seeds]
+
+        results.append(
+            {
+                "statement_id": sid,
+                "finalized": True,
+                "timestamp": entry.get("timestamp"),
+                "statement": statement,
+                "seeds": seeds,
+                "compression_ratio": compression,
+            }
+        )
+
+    return results
+
+@app.get("/api/statements/active_status")
+async def list_active_statements() -> list[dict]:
+    """Return all active (unfinalized) statements sorted newest first."""
+    if not EVENTS_DIR.exists():
+        return []
+
+    entries: list[tuple[float, dict]] = []
+    for path in EVENTS_DIR.glob("*.json"):
+        try:
+            event = load_event(str(path))
+        except Exception:
+            continue
+        if event.get("finalized"):
+            continue
+        header = event.get("header", {})
+        statement = event.get("statement", "")
+        micro_size = int(header.get("microblock_size", 0))
+        block_count = int(header.get("block_count", math.ceil(len(statement) / micro_size))) if micro_size else 0
+        seeds = event.get("seeds", [None] * block_count)
+        mined_blocks = []
+        for idx, seed in enumerate(seeds):
+            if not seed:
+                continue
+            if isinstance(seed, list):
+                seed_hex = bytes(seed).hex()
+            elif isinstance(seed, str):
+                seed_hex = seed
+            else:
+                seed_hex = bytes(seed).hex()
+            mined_blocks.append({"index": idx, "seed": seed_hex})
+        unmined_blocks = [idx for idx, seed in enumerate(seeds) if not seed]
+        header_b64 = base64.b64encode(json.dumps(header).encode("utf-8")).decode("ascii")
+        submitted_at = int(path.stat().st_mtime)
+        entry = {
+            "statement_id": header.get("statement_id", path.stem),
+            "statement": statement,
+            "header": header_b64,
+            "microblock_size": micro_size,
+            "microblock_count": block_count,
+            "mined_blocks": mined_blocks,
+            "unmined_blocks": unmined_blocks,
+            "submitted_at": submitted_at,
+            "wallet_id": event.get("originator_pub"),
+            "finalized": False,
+        }
+        entries.append((submitted_at, entry))
+
+    entries.sort(key=lambda x: x[0], reverse=True)
+    return [e for _, e in entries]
+
 @app.get("/api/events")
 async def list_events() -> list[dict]:
     if not EVENTS_DIR.exists():
@@ -107,12 +219,35 @@ async def get_statement(statement_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Statement not found")
     try:
         return json.loads(path.read_text())
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - invalid file
         raise HTTPException(status_code=500, detail=str(exc))
+
+@app.get("/api/bets/status/{statement_id}")
+async def bet_status(statement_id: str) -> dict:
+    """Return total HLX bet on TRUE and FALSE for ``statement_id``."""
+    path = EVENTS_DIR / f"{statement_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    try:
+        event = load_event(str(path))
+    except Exception as exc:  # pragma: no cover - invalid file
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    yes_bets, no_bets = get_bets_for_event(event)
+    total_true = sum(float(b.get("amount", 0)) for b in yes_bets)
+    total_false = sum(float(b.get("amount", 0)) for b in no_bets)
+
+    return {
+        "statement_id": statement_id,
+        "total_true_bets": total_true,
+        "total_false_bets": total_false,
+    }
 
 @app.get("/api/balance/{wallet_id}")
 async def wallet_balance(wallet_id: str) -> dict:
-    balances = load_balances("wallet.json")
+    """Return HLX balance for ``wallet_id``."""
+    balances = load_balances("balances.json")
     balance = balances.get(wallet_id)
     if balance is None:
         raise HTTPException(status_code=404, detail="Wallet not found")

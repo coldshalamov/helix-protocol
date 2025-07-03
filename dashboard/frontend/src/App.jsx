@@ -8,6 +8,7 @@ import {
 } from "react-router-dom";
 import axios from "axios";
 import EventList from "./components/EventList";
+import PendingStatements from "./components/PendingStatements";
 import SubmitStatement from "./SubmitStatement";
 
 const renderCompression = value => {
@@ -30,6 +31,7 @@ const Navbar = ({ totalSupply }) => (
       <Link to="/" className="hover:underline">Home</Link>
       <Link to="/events" className="hover:underline">Events</Link>
       <Link to="/submit" className="hover:underline">Submit</Link>
+      <Link to="/pending" className="hover:underline">Pending</Link>
       <Link to="/wallet/1" className="hover:underline">Wallet</Link>
     </div>
     <div>Total HLX: {totalSupply ?? '123.45'}</div>
@@ -208,6 +210,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/events" element={<EventList />} />
         <Route path="/submit" element={<SubmitStatement />} />
+        <Route path="/pending" element={<PendingStatements />} />
         <Route path="/statement/:id" element={<Statement />} />
         <Route path="/wallet/:walletId" element={<Wallet />} />
       </Routes>
