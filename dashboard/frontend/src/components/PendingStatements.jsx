@@ -41,7 +41,8 @@ function decodeBlock(encoded) {
 }
 
 function StatementBox({ stmt }) {
-  const [voteAmount, setVoteAmount] = useState("");
+  const [voteAmountYes, setVoteAmountYes] = useState("");
+  const [voteAmountNo, setVoteAmountNo] = useState("");
   const [voteChoice, setVoteChoice] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
   const [voteError, setVoteError] = useState(null);
@@ -95,7 +96,7 @@ function StatementBox({ stmt }) {
 
   const totalBlocks = blockCount;
 
-  const submitVote = async (choice, eventId) => {
+  const submitVote = async (choice, amount, eventId) => {
     setVoteResult(null);
     setVoteError(null);
     setVoteChoice(choice);
@@ -103,7 +104,7 @@ function StatementBox({ stmt }) {
       const res = await axios.post("/api/vote", {
         wallet_id: "1",
         event_id: eventId,
-        amount: parseFloat(voteAmount),
+        amount: parseFloat(amount),
         choice: choice,
       });
       setVoteResult(res.data);
@@ -112,20 +113,20 @@ function StatementBox({ stmt }) {
     }
   };
 
-  const handleVoteClick = (choice) => {
-    if (!voteAmount || isNaN(parseFloat(voteAmount))) {
+  const handleVoteClick = (choice, amount) => {
+    if (!amount || isNaN(parseFloat(amount))) {
       setVoteError("Please enter a valid HLX amount.");
       return;
     }
     const q = quotes[Math.floor(Math.random() * quotes.length)];
     setQuote(q);
-    setPendingVote({ choice, amount: parseFloat(voteAmount) });
+    setPendingVote({ choice, amount: parseFloat(amount) });
     setConfirming(true);
   };
 
   const confirmVote = () => {
     if (pendingVote) {
-      submitVote(pendingVote.choice, stmt.statement_id);
+      submitVote(pendingVote.choice, pendingVote.amount, stmt.statement_id);
     }
     setConfirming(false);
     setPendingVote(null);
@@ -134,7 +135,6 @@ function StatementBox({ stmt }) {
   const microblocks = Array.from({ length: totalBlocks }).map((_, i) => ({
     mined: !!seeds.find((s) => s && s.index === i),
   }));
-  const eventId = stmt.statement_id;
 
   return (
     <div className="border shadow p-4 my-4 space-y-2 bg-white rounded">
@@ -164,28 +164,48 @@ function StatementBox({ stmt }) {
         ))}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-4">
         <label className="font-semibold">Vote:</label>
-        <input
-          type="number"
-          value={voteAmount}
-          onChange={(e) => setVoteAmount(e.target.value)}
-          className="border px-2 py-1 w-24"
-        />
-        <button
-          className="bg-green-600 text-white px-3 py-1 rounded"
-          onClick={() => handleVoteClick("YES")}
-        >
-          ✅ TRUE
-        </button>
-        <div className="text-sm">{yesTotal} HLX</div>
-        <button
-          className="bg-red-600 text-white px-3 py-1 rounded"
-          onClick={() => handleVoteClick("NO")}
-        >
-          ❌ FALSE
-        </button>
-        <div className="text-sm">{noTotal} HLX</div>
+        <div className="flex flex-col items-center">
+          <input
+            type="number"
+            value={voteAmountYes}
+            onChange={(e) => setVoteAmountYes(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleVoteClick("YES", voteAmountYes);
+              }
+            }}
+            className="border px-2 py-1 w-24 mb-1"
+          />
+          <button
+            className="bg-green-600 text-white px-3 py-1 rounded w-full"
+            onClick={() => handleVoteClick("YES", voteAmountYes)}
+          >
+            ✅ TRUE
+          </button>
+          <div className="text-sm mt-1">{yesTotal} HLX</div>
+        </div>
+        <div className="flex flex-col items-center">
+          <input
+            type="number"
+            value={voteAmountNo}
+            onChange={(e) => setVoteAmountNo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleVoteClick("NO", voteAmountNo);
+              }
+            }}
+            className="border px-2 py-1 w-24 mb-1"
+          />
+          <button
+            className="bg-red-600 text-white px-3 py-1 rounded w-full"
+            onClick={() => handleVoteClick("NO", voteAmountNo)}
+          >
+            ❌ FALSE
+          </button>
+          <div className="text-sm mt-1">{noTotal} HLX</div>
+        </div>
       </div>
 
       <div className="text-gray-600 text-sm">
