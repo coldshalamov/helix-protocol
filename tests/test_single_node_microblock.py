@@ -34,7 +34,9 @@ def test_single_node_microblock(tmp_path, monkeypatch, capsys):
     node.events[evt_id] = event
     node.save_state()
 
-    node.send_message({"type": GossipMessageType.NEW_STATEMENT, "event": event})
+    send_event = event.copy()
+    send_event["microblocks"] = [b.hex() for b in send_event["microblocks"]]
+    node.send_message({"type": GossipMessageType.NEW_STATEMENT, "event": send_event})
     node.mine_event(event)
     time.sleep(0.1)
 
