@@ -51,15 +51,11 @@ if not exist node_modules (
 REM --------- START BACKEND --------------
 echo [INFO] Launching backend...
 cd /d "%PROJECT_DIR%"
-start cmd /k "cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && uvicorn dashboard.backend.main:app --reload"
+start "Helix Backend" cmd /k "cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && uvicorn dashboard.backend.main:app --reload"
 
 REM --------- START FRONTEND -------------
 echo [INFO] Launching frontend...
-start cmd /k "cd /d %FRONTEND_DIR% && npm start"
-
-REM --------- OPEN BROWSER ----------------
-timeout /t 5 >nul
-start http://localhost:3000
+start "Helix Frontend" cmd /k "cd /d %FRONTEND_DIR% && npm start"
 
 echo [Helix GUI running...]
 exit /b 0
