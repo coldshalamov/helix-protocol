@@ -1,10 +1,10 @@
 @echo off
 echo Starting Helix frontend and backend...
 
-:: Backend server
-start cmd /k "cd /d C:\Users\93rob\OneDrive\Documents\GitHub\helix-protocol && uvicorn dashboard.backend.main:app --reload"
+:: Start backend with virtualenv activated
+start cmd /k "cd /d C:\Users\93rob\OneDrive\Documents\GitHub\helix-protocol && call venv\Scripts\activate && uvicorn dashboard.backend.main:app --reload"
 
-:: Frontend client
+:: Prepare frontend
 cd /d C:\Users\93rob\OneDrive\Documents\GitHub\helix-protocol\dashboard\frontend
 echo Installing frontend dependencies...
 call npm install
