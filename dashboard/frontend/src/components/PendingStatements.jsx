@@ -17,7 +17,6 @@ const BG_COLORS = [
 const COLOR_CYCLE = ["#00AEEF", "#006494", "#111111", "#00E0FF"];
 
 function decodeBlock(encoded) {
-  // Try base64 first, fall back to hex
   try {
     const bin = atob(encoded);
     return Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -32,7 +31,11 @@ function decodeBlock(encoded) {
 
 function StatementBox({ stmt }) {
   const mined = Array.isArray(stmt.mined_status) ? stmt.mined_status : [];
-  const seeds = Array.isArray(stmt.seeds) ? stmt.seeds : [];
+  const seeds = Array.isArray(stmt.seeds)
+    ? stmt.seeds
+    : Array.isArray(stmt.mined_blocks)
+    ? stmt.mined_blocks
+    : [];
   const bets = stmt.bets || {};
   const yesTotal = bets.YES || bets.TRUE || stmt.total_yes || 0;
   const noTotal = bets.NO || stmt.total_no || 0;
@@ -70,6 +73,20 @@ function StatementBox({ stmt }) {
   const minedCount = mined.filter(Boolean).length;
   const blockCount = segments.length;
 
+  const totalBlocks = stmt.microblock_count || Math.ceil(fullText.length / blockSize);
+  const statusBar = [];
+  for (let i = 0; i < totalBlocks; i++) {
+    const seedObj = seeds.find((s) => s && s.index === i);
+    statusBar.push(
+      <div key={i} className="flex flex-col items-center mb-1">
+        <div className={`block-icon w-4 h-4 ${seedObj ? 'bg-green-500' : 'bg-purple-300'}`}></div>
+        <div className="seed-label text-[10px] break-all">
+          {seedObj ? `seed: b'${seedObj.seed}'` : 'Pending'}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="border shadow p-4 mb-4">
       <div className="flex justify-between mb-2">
@@ -82,27 +99,32 @@ function StatementBox({ stmt }) {
           <span className="text-sm mt-1">{noTotal} HLX</span>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <div className="flex space-x-1 font-mono text-sm">
-          {segments.map((seg, i) => (
-            <span key={i} style={{ color: COLOR_CYCLE[i % 4] }}>{seg}</span>
-          ))}
+      <div className="flex">
+        <div className="flex-1 overflow-x-auto">
+          <div className="flex space-x-1 font-mono text-sm">
+            {segments.map((seg, i) => (
+              <span key={i} style={{ color: COLOR_CYCLE[i % COLOR_CYCLE.length] }}>{seg}</span>
+            ))}
+          </div>
+          <div className="flex space-x-1 mt-1 text-xs">
+            {segments.map((_, i) => {
+              const color = BG_COLORS[i % BG_COLORS.length];
+              const isMined = mined[i];
+              const seedVal = seeds[i]?.seed ?? seeds[i];
+              const cls = isMined ? color : "bg-gray-100";
+              return (
+                <span key={i} className={`${cls} px-1 flex flex-col items-center`}>
+                  {isMined ? "Mined" : "Pending"}
+                  {isMined && (
+                    <span className="text-[10px] break-all">{seedVal}</span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
         </div>
-        <div className="flex space-x-1 mt-1 text-xs">
-          {segments.map((_, i) => {
-            const color = BG_COLORS[i % BG_COLORS.length];
-            const isMined = mined[i];
-            const seed = seeds[i];
-            const cls = isMined ? color : "bg-gray-100";
-            return (
-              <span key={i} className={`${cls} px-1 flex flex-col items-center`}>
-                {isMined ? "Mined" : "Pending"}
-                {isMined && (
-                  <span className="text-[10px] break-all">{seed}</span>
-                )}
-              </span>
-            );
-          })}
+        <div className="ml-4 flex flex-col items-center">
+          {statusBar}
         </div>
       </div>
       <div className="mt-2">
