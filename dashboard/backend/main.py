@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import base64
+import hashlib
 import math
 import time
 from pathlib import Path
@@ -47,6 +48,9 @@ class SubmitRequest(BaseModel):
     statement: str
     wallet_id: str
     microblock_size: int = 3
+
+class GenerateRequest(BaseModel):
+    seed: str
 
 @app.post("/api/submit")
 async def submit_statement(req: SubmitRequest) -> dict:
@@ -289,6 +293,14 @@ async def bet_status(statement_id: str) -> dict:
         "total_true_bets": total_true,
         "total_false_bets": total_false,
     }
+
+
+@app.post("/api/generate")
+async def generate(req: GenerateRequest) -> dict:
+    """Return deterministic output for provided seed."""
+    seed_bytes = req.seed.encode("utf-8")
+    out = hashlib.sha256(seed_bytes).hexdigest()[:16]
+    return {"output": out}
 
 @app.get("/api/balance/{wallet_id}")
 async def wallet_balance(wallet_id: str) -> dict:
