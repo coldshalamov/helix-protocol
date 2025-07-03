@@ -31,7 +31,7 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
     python -m venv venv
 )
 
-REM --------- INSTALL BACKEND DEPS --------
+REM --------- ACTIVATE VENV & INSTALL BACKEND DEPS --------
 echo [INFO] Activating virtual environment...
 call "%VENV_DIR%\Scripts\activate.bat"
 
@@ -42,7 +42,11 @@ pip install -r "%REQUIREMENTS_FILE%"
 REM --------- INSTALL FRONTEND DEPS -------
 echo [INFO] Installing frontend dependencies...
 cd /d "%FRONTEND_DIR%"
-npm install
+if not exist node_modules (
+    echo [INFO] node_modules not found. Installing...
+    npm install axios react-router-dom
+    npm install
+)
 
 REM --------- START BACKEND --------------
 echo [INFO] Launching backend...
