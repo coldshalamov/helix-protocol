@@ -9,6 +9,7 @@ import {
 import axios from "axios";
 import EventList from "./components/EventList";
 import PendingStatements from "./components/PendingStatements";
+import DiceRoller from "./components/DiceRoller";
 import SubmitStatement from "./SubmitStatement";
 
 const renderCompression = value => {
@@ -205,6 +206,7 @@ export default function App() {
   return (
     <Router>
       <Navbar totalSupply={supply} />
+      <DiceRoller />
       {error && <div className="p-4 text-red-600">{error}</div>}
       <Routes>
         <Route path="/" element={<Home />} />
