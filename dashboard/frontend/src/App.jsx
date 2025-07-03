@@ -9,6 +9,7 @@ import {
 import axios from "axios";
 import EventList from "./components/EventList";
 import PendingStatements from "./components/PendingStatements";
+import DiceRoller from "./components/DiceRoller";
 import SubmitStatement from "./SubmitStatement";
 
 const renderCompression = value => {
@@ -204,6 +205,7 @@ export default function App() {
   return (
     <Router>
       <Navbar walletBalance={walletBalance} />
+      <DiceRoller />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/events" element={<EventList />} />
