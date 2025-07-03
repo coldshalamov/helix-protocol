@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import base64
+import hashlib
 import math
 import time
 from pathlib import Path
@@ -53,6 +54,9 @@ class VoteRequest(BaseModel):
     event_id: str
     amount: float
     choice: str  # "YES" or "NO"
+
+class GenerateRequest(BaseModel):
+    seed: str
 
 @app.post("/api/submit")
 async def submit_statement(req: SubmitRequest) -> dict:
@@ -195,11 +199,9 @@ async def list_active_statements() -> list[dict]:
     entries.sort(key=lambda x: x[0], reverse=True)
     return [e for _, e in entries]
 
-
 @app.get("/api/pending")
 async def list_pending() -> list[dict]:
     """Return pending statements with encoded microblocks."""
-
     if not EVENTS_DIR.exists():
         return []
 
@@ -296,7 +298,6 @@ async def bet_status(statement_id: str) -> dict:
         "total_false_bets": total_false,
     }
 
-
 @app.post("/api/vote")
 async def submit_vote(req: VoteRequest):
     """Accept a vote on a pending statement. Deducts HLX from wallet and records the vote."""
@@ -334,6 +335,13 @@ async def submit_vote(req: VoteRequest):
     Path("balances.json").write_text(json.dumps(balances, indent=2))
 
     return {"success": True, "new_balance": balances[req.wallet_id]}
+
+@app.post("/api/generate")
+async def generate(req: GenerateRequest) -> dict:
+    """Return deterministic output for provided seed."""
+    seed_bytes = req.seed.encode("utf-8")
+    out = hashlib.sha256(seed_bytes).hexdigest()[:16]
+    return {"output": out}
 
 @app.get("/api/balance/{wallet_id}")
 async def wallet_balance(wallet_id: str) -> dict:

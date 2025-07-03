@@ -3,22 +3,17 @@ import axios from "axios";
 
 export default function DiceRoller() {
   const [seed, setSeed] = useState("");
-  const [size, setSize] = useState(6);
+  const [size, setSize] = useState(0);
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const roll = () => {
-    const sz = Number(size);
-    if (isNaN(sz) || sz < 1 || sz > 32) {
-      setError("Size must be between 1 and 32");
-      return;
-    }
     setLoading(true);
     setError("");
     setOutput("");
     axios
-      .post("/api/generate", { seed, size: sz })
+      .post("/api/generate", { seed })
       .then((res) => {
         if (res.data && res.data.output) {
           setOutput(res.data.output);
@@ -45,20 +40,20 @@ export default function DiceRoller() {
       <label className="text-sm font-medium">Size</label>
       <input
         type="number"
-        min="1"
-        max="32"
+        min="0"
         className="border p-1 mb-2 w-full"
         value={size}
         onChange={(e) => setSize(e.target.value)}
       />
       <button onClick={roll} className="mx-auto mb-2">
-        <img src="/helix_icon.ico" alt="roll" className="w-8 h-8" />
+        <img src="/helix_icon.ico" alt="roll" className="w-6 h-6" />
       </button>
       {loading && <div className="text-sm">Loading...</div>}
       {error && <div className="text-sm text-red-600">{error}</div>}
       {output && (
-        <pre className="mt-2 bg-gray-100 p-2 overflow-auto font-mono break-all">
-          {output}
+        <pre className="mt-2 font-mono flex">
+          <span style={{ color: "#00AEEF" }}>{output.slice(0, Number(size))}</span>
+          <span>{output.slice(Number(size))}</span>
         </pre>
       )}
     </div>
