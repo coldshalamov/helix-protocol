@@ -16,6 +16,11 @@ function decodeBlock(encoded) {
 }
 
 function StatementBox({ stmt }) {
+  const [voteAmount, setVoteAmount] = useState("");
+  const [voteChoice, setVoteChoice] = useState(null);
+  const [voteResult, setVoteResult] = useState(null);
+  const [voteError, setVoteError] = useState(null);
+
   const seeds = Array.isArray(stmt.seeds)
     ? stmt.seeds
     : Array.isArray(stmt.mined_blocks)
@@ -61,59 +66,91 @@ function StatementBox({ stmt }) {
     : 0;
 
   const totalBlocks = blockCount;
-  const statusBar = [];
-  for (let i = 0; i < totalBlocks; i++) {
-    const seedObj = seeds.find((s) => s && s.index === i);
-    statusBar.push(
-      <div key={i} className="flex flex-col items-center mb-1">
-        <div className={`block-icon w-4 h-4 ${seedObj ? 'bg-green-500' : 'bg-purple-300'}`}></div>
-        <div className="seed-label text-[10px] break-all">
-          {seedObj ? `seed: b'${seedObj.seed}'` : 'Pending'}
-        </div>
-      </div>
-    );
-  }
+
+  const submitVote = async (choice, eventId) => {
+    setVoteResult(null);
+    setVoteError(null);
+    setVoteChoice(choice);
+    try {
+      const res = await axios.post("/api/vote", {
+        wallet_id: "1",
+        event_id: eventId,
+        amount: parseFloat(voteAmount),
+        choice: choice,
+      });
+      setVoteResult(res.data);
+    } catch (err) {
+      setVoteError(err.response?.data?.detail || "Vote failed.");
+    }
+  };
+
+  const microblocks = Array.from({ length: totalBlocks }).map((_, i) => ({
+    mined: !!seeds.find((s) => s && s.index === i),
+  }));
+  const eventId = stmt.statement_id;
 
   return (
-    <div className="border shadow p-4 mb-4">
-      <div className="flex justify-between mb-2">
-        <div className="flex flex-col items-center">
-          <button className="bg-green-500 text-white px-2 py-1 rounded">TRUE</button>
-          <span className="text-sm mt-1">{yesTotal} HLX</span>
-        </div>
-        <div className="flex flex-col items-center">
-          <button className="bg-red-500 text-white px-2 py-1 rounded">FALSE</button>
-          <span className="text-sm mt-1">{noTotal} HLX</span>
-        </div>
+    <div className="border shadow p-4 my-4 space-y-2 bg-white rounded">
+      <div className="flex flex-wrap font-mono text-sm">
+        {segments.map((seg, i) => (
+          <span
+            key={i}
+            className="px-1 whitespace-pre"
+            style={{
+              backgroundColor: i % 2 === 0 ? "#D0F0FF" : "#FFFFFF",
+              color: "#000000",
+            }}
+          >
+            {seg}
+          </span>
+        ))}
       </div>
-      <div className="flex">
-        <div className="flex-1 overflow-x-auto">
-          <div className="flex flex-wrap font-mono text-sm">
-            {segments.map((seg, i) => (
-              <span
-                key={i}
-                className="px-1 whitespace-pre"
-                style={{
-                  backgroundColor: i % 2 === 0 ? "#D0F0FF" : "#FFFFFF",
-                  color: "#000000",
-                }}
-              >
-                {seg}
-              </span>
-            ))}
+
+      <div className="flex flex-wrap gap-1">
+        {microblocks.map((block, i) => (
+          <div
+            key={i}
+            className={`px-2 py-1 rounded text-sm ${block.mined ? "bg-green-200" : "bg-yellow-200"}`}
+          >
+            {block.mined ? `✔ Block ${i}` : `⏳ Block ${i}`}
           </div>
-        </div>
-        <div className="ml-4 flex flex-col items-center">
-          {statusBar}
-        </div>
+        ))}
       </div>
-      <div className="mt-2">
-        <label className="mr-2">Vote</label>
-        <input type="number" className="border p-1 w-24" />
+
+      <div className="flex items-center gap-2">
+        <label className="font-semibold">Vote:</label>
+        <input
+          type="number"
+          value={voteAmount}
+          onChange={(e) => setVoteAmount(e.target.value)}
+          className="border px-2 py-1 w-24"
+        />
+        <button
+          className="bg-green-600 text-white px-3 py-1 rounded"
+          onClick={() => submitVote("YES", eventId)}
+        >
+          ✅ TRUE
+        </button>
+        <div className="text-sm">{yesTotal} HLX</div>
+        <button
+          className="bg-red-600 text-white px-3 py-1 rounded"
+          onClick={() => submitVote("NO", eventId)}
+        >
+          ❌ FALSE
+        </button>
+        <div className="text-sm">{noTotal} HLX</div>
       </div>
-      <div className="mt-1 text-sm text-gray-600">
+
+      <div className="text-gray-600 text-sm">
         {minedCount} / {blockCount} blocks mined
       </div>
+
+      {voteResult && (
+        <div className="text-green-700 text-sm">✅ Vote submitted.</div>
+      )}
+      {voteError && (
+        <div className="text-red-600 text-sm">❌ {voteError}</div>
+      )}
     </div>
   );
 }
