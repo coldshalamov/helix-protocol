@@ -1,5 +1,30 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import ReactModal from "react-modal";
+
+ReactModal.setAppElement("#root");
+
+const quotes = [
+  "The unexamined bet is not worth placing.",
+  "Reality is that which, when you stop believing in it, does not go away.",
+  "The difference between intelligent and unintelligent people is intelligent people can handle subtlety.",
+  "A lie gets halfway around the world before the truth has a chance to get its trousers on.",
+  "The simple step of a courageous individual is not to take part in the lie. One word of truth outweighs the world.",
+  "In a world of secrets, the only certainty is doubt.",
+  "The truth is rarely pure and never simple.",
+  "Truth is an expensive commodity. That's why the market is full of counterfeits.",
+  "We know the truth not only by reason, but by the heart.",
+  "In a time of universal deceit, telling the truth is a revolutionary action.",
+  "The easiest person to fool is yourself.",
+  "Seeking what is true is not seeking what is desirable.",
+  "Prefer questions that can't be answered to answers that can't be questioned.",
+  "Once a file gets on a computer, it's hard to kill.",
+  "Live not by lies.",
+  "Let the lie come into the world, let it even triumph. But not through me.",
+  "The truth is not learned in safety.",
+  "The truth is the most painful thing to tell.",
+  "What is real? What is illusion? Sometimes, we cannot tell the difference.",
+];
 
 
 function decodeBlock(encoded) {
@@ -20,6 +45,9 @@ function StatementBox({ stmt }) {
   const [voteChoice, setVoteChoice] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
   const [voteError, setVoteError] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const [pendingVote, setPendingVote] = useState(null); // { choice, amount }
+  const [quote, setQuote] = useState("");
 
   const seeds = Array.isArray(stmt.seeds)
     ? stmt.seeds
@@ -84,6 +112,25 @@ function StatementBox({ stmt }) {
     }
   };
 
+  const handleVoteClick = (choice) => {
+    if (!voteAmount || isNaN(parseFloat(voteAmount))) {
+      setVoteError("Please enter a valid HLX amount.");
+      return;
+    }
+    const q = quotes[Math.floor(Math.random() * quotes.length)];
+    setQuote(q);
+    setPendingVote({ choice, amount: parseFloat(voteAmount) });
+    setConfirming(true);
+  };
+
+  const confirmVote = () => {
+    if (pendingVote) {
+      submitVote(pendingVote.choice, stmt.statement_id);
+    }
+    setConfirming(false);
+    setPendingVote(null);
+  };
+
   const microblocks = Array.from({ length: totalBlocks }).map((_, i) => ({
     mined: !!seeds.find((s) => s && s.index === i),
   }));
@@ -127,14 +174,14 @@ function StatementBox({ stmt }) {
         />
         <button
           className="bg-green-600 text-white px-3 py-1 rounded"
-          onClick={() => submitVote("YES", eventId)}
+          onClick={() => handleVoteClick("YES")}
         >
           ✅ TRUE
         </button>
         <div className="text-sm">{yesTotal} HLX</div>
         <button
           className="bg-red-600 text-white px-3 py-1 rounded"
-          onClick={() => submitVote("NO", eventId)}
+          onClick={() => handleVoteClick("NO")}
         >
           ❌ FALSE
         </button>
@@ -151,6 +198,39 @@ function StatementBox({ stmt }) {
       {voteError && (
         <div className="text-red-600 text-sm">❌ {voteError}</div>
       )}
+      <ReactModal
+        isOpen={confirming}
+        onRequestClose={() => setConfirming(false)}
+        className="bg-white rounded shadow p-6 w-96 mx-auto mt-20"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-start z-50"
+      >
+        <h2 className="text-xl font-semibold mb-2">Confirm Your Bet</h2>
+        <div className="mb-2">
+          <div className="text-sm font-medium text-gray-700">Statement:</div>
+          <div className="text-sm text-gray-900 whitespace-pre-wrap">{fullText}</div>
+        </div>
+        <div className="text-sm text-gray-800 my-2">
+          You are betting <strong>{pendingVote?.amount} HLX</strong> on{" "}
+          <strong>{pendingVote?.choice === "YES" ? "✅ TRUE" : "❌ FALSE"}</strong>.
+        </div>
+        <blockquote className="italic text-gray-600 border-l-4 pl-2 border-blue-400 mb-4">
+          {quote}
+        </blockquote>
+        <div className="flex justify-end gap-4">
+          <button
+            className="px-4 py-2 bg-gray-300 text-gray-700 rounded"
+            onClick={() => setConfirming(false)}
+          >
+            Forget it
+          </button>
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded"
+            onClick={confirmVote}
+          >
+            I'm certain
+          </button>
+        </div>
+      </ReactModal>
     </div>
   );
 }
