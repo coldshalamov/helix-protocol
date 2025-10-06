@@ -59,6 +59,22 @@ def save_balances(balances: Dict[str, float], path: str) -> None:
         json.dump(balances, fh, indent=2)
 
 
+def apply_mining_reward(wallet_id: str, block_count: int, path: str = "balances.json") -> None:
+    """Credit ``wallet_id`` with mining rewards for ``block_count`` blocks.
+
+    Gas costs are disabled for testing, so the wallet balance only increases
+    by the reward amount.  The reward remains ``1`` HLX per mined block.
+    """
+    balances = load_balances(path)
+    reward = block_count  # still reward 1 HLX per block
+    gas_cost = 0  # disable gas entirely for testing
+
+    balances[wallet_id] = balances.get(wallet_id, 0) + reward
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(balances, f, indent=2)
+
+
 def log_ledger_event(
     action: str,
     wallet: str,
@@ -258,6 +274,7 @@ def apply_mining_results(
 __all__ = [
     "load_balances",
     "save_balances",
+    "apply_mining_reward",
     "log_ledger_event",
     "apply_delta_bonus",
     "apply_delta_penalty",

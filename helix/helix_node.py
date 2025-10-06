@@ -278,6 +278,17 @@ class HelixNode(GossipNode):
         self.events[evt_id] = event
         return event
 
+    def mine_event(self, event: Dict[str, Any]) -> None:
+        """Mine microblocks for ``event`` using :func:`find_seed`."""
+
+        for idx, block in enumerate(event.get("microblocks", [])):
+            if event.get("seeds", [None])[idx] is not None:
+                continue
+            seed = find_seed(block)
+            if seed is None:
+                continue
+            event_manager.accept_mined_seed(event, idx, [seed], miner=self.node_id)
+
     def import_event(self, event: Dict[str, Any]) -> None:
         """Validate and store ``event`` in the node state."""
 

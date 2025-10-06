@@ -55,11 +55,9 @@ def sha256(data: bytes) -> str:
 
 
 def split_into_microblocks(
-    statement: str, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
+    payload: bytes, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
 ) -> Tuple[List[bytes], int, int]:
-    """Split ``statement`` into padded microblocks."""
-
-    payload = statement.encode("latin1")
+    """Split ``payload`` into padded microblocks."""
     orig_len = len(payload)
     blocks: List[bytes] = []
     for i in range(0, orig_len, microblock_size):
@@ -70,11 +68,23 @@ def split_into_microblocks(
     return blocks, len(blocks), orig_len
 
 
-def reassemble_microblocks(blocks: List[bytes]) -> str:
-    """Return the original statement from ``blocks``."""
+HEADER_AUTHOR_LEN = 44
+HEADER_PREV_LEN = 32
+HEADER_VOTE_LEN = 5
+HEADER_TOTAL = HEADER_AUTHOR_LEN + HEADER_PREV_LEN + 2 * HEADER_VOTE_LEN
 
+
+def reassemble_microblocks(blocks: List[bytes]) -> str:
+    """Return the original message from ``blocks`` dropping the binary header."""
     payload = b"".join(bytes(b) for b in blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
-    return payload.decode("latin1")
+    if len(payload) < HEADER_TOTAL:
+        return ""
+    return payload[HEADER_TOTAL:].decode("utf-8", errors="replace")
+
+
+def reassemble_payload(blocks: List[bytes]) -> bytes:
+    """Return the full payload stored in ``blocks``."""
+    return b"".join(bytes(b) for b in blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
 
 
 def create_event(
@@ -90,9 +100,6 @@ def create_event(
     if registry is not None:
         registry.check_and_add(statement)
 
-    blocks, count, orig_len = split_into_microblocks(statement, microblock_size)
-    root, tree = _build_merkle_tree(blocks)
-
     if private_key is None:
         pub, priv = generate_keypair()
     else:
@@ -100,15 +107,29 @@ def create_event(
         signing_key = signing.SigningKey(base64.b64decode(priv))
         pub = base64.b64encode(signing_key.verify_key.encode()).decode("ascii")
 
-    signature = sign_data(statement.encode("latin1"), priv)
+    prev_hash_bytes = bytes.fromhex(LAST_STATEMENT_HASH)[:HEADER_PREV_LEN]
+    header_bytes = (
+        pub.encode("ascii")
+        + prev_hash_bytes
+        + (0).to_bytes(HEADER_VOTE_LEN, "big")
+        + (0).to_bytes(HEADER_VOTE_LEN, "big")
+    )
+
+    payload = header_bytes + statement.encode("utf-8")
+    blocks, count, orig_len = split_into_microblocks(payload, microblock_size)
+    root, tree = _build_merkle_tree(blocks)
+
+    signature = sign_data(statement.encode("utf-8"), priv)
 
     header = {
-        "statement_id": sha256(statement.encode("latin1")),
-        "original_length": orig_len,
+        "statement_id": sha256(payload),
+        "payload_length": orig_len,
         "microblock_size": microblock_size,
         "block_count": count,
         "parent_id": parent_id,
+        "previous_hash": LAST_STATEMENT_HASH,
         "merkle_root": root.hex(),
+        "author_id": pub,
     }
 
     event = {
@@ -235,7 +256,8 @@ def verify_event_signature(event: Dict[str, Any]) -> bool:
     sig = event.get("originator_sig")
     if not statement or not pub or not sig:
         return False
-    return verify_signature(statement.encode("latin1"), sig, pub)
+    # Use UTF-8 to match create_event signing
+    return verify_signature(statement.encode("utf-8"), sig, pub)
 
 
 def verify_seed_chain(encoded: bytes, block: bytes) -> bool:
@@ -345,8 +367,9 @@ def _legacy_finalize_event(
     bonus_receiver = prev_block.get("finalizer") if prev_block else None
 
     # Reassemble statement and compute its hash
-    statement = reassemble_microblocks(event.get("microblocks", []))
-    statement_id = sha256(statement.encode("latin1"))
+    payload = reassemble_payload(event.get("microblocks", []))
+    statement_id = sha256(payload)
+    statement = payload[HEADER_TOTAL:].decode("utf-8", errors="replace")
 
     # Build the new block header
     header = {
@@ -435,8 +458,8 @@ def _finalize_event_by_id(event_id: str) -> None:
     miners = [pending_miners[event_id][i] for i in range(block_count)]
 
     payload = b"".join(blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
-    statement = payload.decode("latin1")
-    statement_id = sha256(statement.encode("latin1"))
+    statement_id = sha256(payload)
+    statement = payload[HEADER_TOTAL:].decode("utf-8", errors="replace")
 
     global LAST_STATEMENT_HASH, LAST_FINALIZED_TIME
     now = time.time()
@@ -600,4 +623,3 @@ def submit_statement(statement: str, wallet_id: str | None = None) -> str:
     event = create_event(statement, private_key=priv)
     save_event(event, directory="data/events")
     return event["header"]["statement_id"]
-
