@@ -58,7 +58,6 @@ def split_into_microblocks(
     payload: bytes, microblock_size: int = DEFAULT_MICROBLOCK_SIZE
 ) -> Tuple[List[bytes], int, int]:
     """Split ``payload`` into padded microblocks."""
-
     orig_len = len(payload)
     blocks: List[bytes] = []
     for i in range(0, orig_len, microblock_size):
@@ -77,7 +76,6 @@ HEADER_TOTAL = HEADER_AUTHOR_LEN + HEADER_PREV_LEN + 2 * HEADER_VOTE_LEN
 
 def reassemble_microblocks(blocks: List[bytes]) -> str:
     """Return the original message from ``blocks`` dropping the binary header."""
-
     payload = b"".join(bytes(b) for b in blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
     if len(payload) < HEADER_TOTAL:
         return ""
@@ -86,7 +84,6 @@ def reassemble_microblocks(blocks: List[bytes]) -> str:
 
 def reassemble_payload(blocks: List[bytes]) -> bytes:
     """Return the full payload stored in ``blocks``."""
-
     return b"".join(bytes(b) for b in blocks).rstrip(FINAL_BLOCK_PADDING_BYTE)
 
 
@@ -259,7 +256,8 @@ def verify_event_signature(event: Dict[str, Any]) -> bool:
     sig = event.get("originator_sig")
     if not statement or not pub or not sig:
         return False
-    return verify_signature(statement.encode("latin1"), sig, pub)
+    # Use UTF-8 to match create_event signing
+    return verify_signature(statement.encode("utf-8"), sig, pub)
 
 
 def verify_seed_chain(encoded: bytes, block: bytes) -> bool:
@@ -625,4 +623,3 @@ def submit_statement(statement: str, wallet_id: str | None = None) -> str:
     event = create_event(statement, private_key=priv)
     save_event(event, directory="data/events")
     return event["header"]["statement_id"]
-
